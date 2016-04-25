@@ -1,0 +1,22 @@
+[
+	{
+		"Root": "github.com/bkaradzic/go-lz4",
+		"Revision": "74ddf82598bc4745b965729e9c6a463bedd33049"
+	},
+	{
+		"Root": "github.com/satori/go.uuid",
+		"Revision": "e673fdd4dea8a7334adbbe7f57b7e4b00bdc5502"
+	},
+	{
+		"Root": "github.com/samuel/go-zookeeper",
+		"Revision": "218e9c81c0dd8b3b18172b2bbfad92cc7d6db55f"
+	},
+	{
+		"Root": "github.com/foursquare/curator.go",
+		"Revision": "1e6880fe4772986b3b21da77214b95f5c91a5a42"
+	},
+	{
+		"Root": "github.com/foursquare/fsgo",
+		"Revision": "216367fddf4b7d4b05a6de78ccd20eeabf055c61"
+	}
+]
