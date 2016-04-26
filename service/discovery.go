@@ -313,7 +313,7 @@ func (this *DiscoveryBuilder) NewDiscovery(logger Logger, blockUntilConnected bo
 			curatorConnection.Close()
 		}
 	}()
-	
+
 	if blockUntilConnected {
 		err = curatorConnection.BlockUntilConnected()
 		if err != nil {
