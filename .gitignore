@@ -3,6 +3,9 @@
 *.a
 *.so
 
+# Zookeeper
+zookeeper*
+
 # Folders
 _obj
 _test
