@@ -3,6 +3,7 @@ package service
 import (
 	"fmt"
 	"io"
+	"os"
 )
 
 // Logger is the interface used for discovery logging.
@@ -21,13 +22,17 @@ type DefaultLogger struct {
 }
 
 func (logger *DefaultLogger) write(level string, values ...interface{}) {
-	count, err := io.WriteString(
+	_, err := io.WriteString(
 		logger,
 		fmt.Sprintf(
 			fmt.Sprintf("[%-5.5s] "+values[0].(string), level),
 			values[1:]...,
 		),
 	)
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to write log level %s: %v\n", level, values)
+	}
 }
 
 func (logger *DefaultLogger) Debug(values ...interface{}) {
