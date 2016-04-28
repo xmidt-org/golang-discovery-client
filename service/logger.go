@@ -36,17 +36,17 @@ func (logger *DefaultLogger) write(level string, values ...interface{}) {
 }
 
 func (logger *DefaultLogger) Debug(values ...interface{}) {
-	logger.write("DEBUG", values)
+	logger.write("DEBUG", values...)
 }
 
 func (logger *DefaultLogger) Warn(values ...interface{}) {
-	logger.write("WARN", values)
+	logger.write("WARN", values...)
 }
 
 func (logger *DefaultLogger) Info(values ...interface{}) {
-	logger.write("INFO", values)
+	logger.write("INFO", values...)
 }
 
 func (logger *DefaultLogger) Error(values ...interface{}) {
-	logger.write("ERROR", values)
+	logger.write("ERROR", values...)
 }
