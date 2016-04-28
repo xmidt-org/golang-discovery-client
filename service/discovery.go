@@ -2,13 +2,11 @@ package service
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"github.com/foursquare/curator.go"
 	"github.com/foursquare/fsgo/net/discovery"
 	"github.com/samuel/go-zookeeper/zk"
 	"io"
-	"os"
 	"time"
 )
 
@@ -337,62 +335,4 @@ func (this *DiscoveryBuilder) NewDiscovery(logger Logger, blockUntilConnected bo
 	implementation.monitor()
 	product = implementation
 	return
-}
-
-const (
-	// ConnectionFlag is the command line flag used to specify the Curator connection string
-	ConnectionFlag string = "connection"
-
-	// BasePathFlag is the command line flag used to specify the base service path
-	BasePathFlag string = "basePath"
-
-	// WatchFlag is the command line flag used to specify the names of one or more services to watch
-	WatchFlag string = "watch"
-)
-
-var (
-	ErrorNoConnection = errors.New("No connection specified")
-	ErrorNoBasePath   = errors.New("No basePath specified")
-	ErrorNoWatches    = errors.New("No watches specified")
-)
-
-// UsingArguments initializes this discovery builder from an arbitrary array
-// of arguments.
-func (this *DiscoveryBuilder) UsingArguments(flagSet *flag.FlagSet, arguments []string) (err error) {
-	flagSet.StringVar(&this.Connection, ConnectionFlag, "127.0.0.1:2181", "the Curator connection string")
-	flagSet.StringVar(&this.BasePath, BasePathFlag, "", "the base service path (e.g. /service)")
-	flagSet.String(WatchFlag, "", "one or more service names to watch")
-	if err = flagSet.Parse(arguments); err != nil {
-		return
-	}
-
-	this.Watches = nil
-	flagSet.VisitAll(func(flag *flag.Flag) {
-		if flag.Name == WatchFlag {
-			watch := flag.Value.String()
-			if len(watch) > 0 {
-				this.Watches = append(this.Watches, watch)
-			}
-		}
-	})
-
-	if len(this.Connection) == 0 {
-		err = ErrorNoConnection
-	} else if len(this.BasePath) == 0 {
-		err = ErrorNoBasePath
-	} else if len(this.Watches) == 0 {
-		err = ErrorNoWatches
-	}
-
-	return
-}
-
-// UsingCommandLine initializes this discovery builder from the process command line.
-func (this *DiscoveryBuilder) UsingCommandLine(flagSet *flag.FlagSet) error {
-	return this.UsingArguments(flagSet, os.Args[1:])
-}
-
-// UsingDefaultCommandLine uses the internal CommandLine in the flag package
-func (this *DiscoveryBuilder) UsingDefaultCommandLine() error {
-	return this.UsingCommandLine(flag.CommandLine)
 }
