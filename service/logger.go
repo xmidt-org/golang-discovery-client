@@ -25,7 +25,7 @@ func (logger *DefaultLogger) write(level string, values ...interface{}) {
 	_, err := io.WriteString(
 		logger,
 		fmt.Sprintf(
-			fmt.Sprintf("[%-5.5s] "+values[0].(string)+"\n", level),
+			"["+level+"]: "+values[0].(string)+"\n",
 			values[1:]...,
 		),
 	)
@@ -40,11 +40,11 @@ func (logger *DefaultLogger) Debug(values ...interface{}) {
 }
 
 func (logger *DefaultLogger) Warn(values ...interface{}) {
-	logger.write("WARN", values...)
+	logger.write("WARN ", values...)
 }
 
 func (logger *DefaultLogger) Info(values ...interface{}) {
-	logger.write("INFO", values...)
+	logger.write("INFO ", values...)
 }
 
 func (logger *DefaultLogger) Error(values ...interface{}) {
