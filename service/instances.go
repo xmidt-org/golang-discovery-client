@@ -28,10 +28,10 @@ func (this Instances) String() string {
 			output.WriteRune(',')
 		}
 
-		output.WriteString(fmt.Sprintf("%v", *serviceInstance))
+		output.WriteString(fmt.Sprintf("%#v", *serviceInstance))
 	}
 
-	output.WriteRune('[')
+	output.WriteRune(']')
 	return output.String()
 }
 
