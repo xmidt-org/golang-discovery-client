@@ -25,7 +25,7 @@ func (logger *DefaultLogger) write(level string, values ...interface{}) {
 	_, err := io.WriteString(
 		logger,
 		fmt.Sprintf(
-			fmt.Sprintf("[%-5.5s] "+values[0].(string), level),
+			fmt.Sprintf("[%-5.5s] "+values[0].(string)+"\n", level),
 			values[1:]...,
 		),
 	)
