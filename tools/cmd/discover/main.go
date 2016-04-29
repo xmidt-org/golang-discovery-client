@@ -2,17 +2,43 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"github.com/Comcast/golang-discovery-client/service"
 	"github.com/Comcast/golang-discovery-client/service/cmd"
 	"os"
 	"os/signal"
 )
 
-func ServiceListener(logger service.Logger) service.Listener {
-	return service.ListenerFunc(func(serviceName string, instances service.Instances) {
-		logger.Info("Updated [%s] services: %s", serviceName, instances)
-	})
+func printServices(logger service.Logger, serviceName string, oldInstances, newInstances service.Instances) {
+	logger.Info("\t")
+	logger.Info("\tService: %s", serviceName)
+	logger.Info("\t")
+}
+
+func initialServices(logger service.Logger, discovery service.Discovery) map[string]service.Instances {
+	services := make(map[string]service.Instances, discovery.ServiceCount())
+	for _, serviceName := range discovery.ServiceNames() {
+		if instances, err := discovery.FetchServices(serviceName); err != nil {
+			logger.Error("Unable to fetch initial [%s] services: %v", serviceName, err)
+			services[serviceName] = make(service.Instances, 0)
+		} else {
+			services[serviceName] = instances
+		}
+	}
+
+	return services
+}
+
+func monitorServices(logger service.Logger, discovery service.Discovery, services map[string]service.Instances) {
+	discovery.AddListenerForAll(
+		service.ListenerFunc(func(serviceName string, newInstances service.Instances) {
+			if oldInstances, ok := services[serviceName]; ok {
+				printServices(logger, serviceName, oldInstances, newInstances)
+				services[serviceName] = newInstances
+			} else {
+				logger.Error("Unknown service: [%s]", serviceName)
+			}
+		}),
+	)
 }
 
 func main() {
@@ -24,19 +50,16 @@ func main() {
 	logger := &service.DefaultLogger{os.Stdout}
 	discovery, err := discoveryBuilder.NewDiscovery(logger, true)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "Unable to start discovery client: %v\n", err)
+		logger.Error("Unable to start discovery client: %v", err)
 		os.Exit(1)
 	}
 
-	for _, serviceName := range discovery.ServiceNames() {
-		if instances, err := discovery.FetchServices(serviceName); err != nil {
-			logger.Error("Unable to fetch initial [%s] services: %v", serviceName, err)
-		} else {
-			logger.Info("Initial [%s] services: %s", serviceName, instances)
-		}
+	services := initialServices(logger, discovery)
+	for serviceName, instances := range services {
+		printServices(logger, serviceName, instances, instances)
 	}
 
-	discovery.AddListenerForAll(ServiceListener(logger))
+	monitorServices(logger, discovery, services)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
