@@ -47,10 +47,10 @@ func categorizeinstances(oldInstances, newInstances service.Instances) Categorie
 		categories[CategoryNew] = append(categories[CategoryNew], newInstance)
 	}
 
-	return
+	return categories
 }
 
-func printService(logger service.Logger, category string, instance *discovery.ServiceInstance) {
+func printService(logger service.Logger, category Category, instance *discovery.ServiceInstance) {
 	logger.Info(
 		"\t%-8.8s | %s | %s",
 		category,
@@ -90,7 +90,7 @@ func initialinstances(logger service.Logger, discovery service.Discovery) Servic
 		}
 	}
 
-	return
+	return serviceMap
 }
 
 func printInitial(logger service.Logger, initial ServiceMap) {
