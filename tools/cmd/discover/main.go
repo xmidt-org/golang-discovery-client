@@ -65,8 +65,8 @@ func printUpdates(logger service.Logger, serviceName string, categories Categori
 	totalServiceCount := 0
 	for category, instances := range categories {
 		totalServiceCount += len(instances)
-		for _, service := range instances {
-			printService(logger, category, service)
+		for _, instance := range instances {
+			printService(logger, category, instance)
 		}
 	}
 
