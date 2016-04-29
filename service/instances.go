@@ -67,3 +67,11 @@ func (this Instances) ToKeys(keyFunc KeyFunc, output Keys) {
 		output.Add(keyFunc(serviceInstance))
 	}
 }
+
+// ToKeyMap maps each ServiceInstance onto a string key as in ToKeys,
+// but both the key and the ServiceInstance value are stored in the output.
+func (this Instances) ToKeyMap(keyFunc KeyFunc, output KeyMap) {
+	for _, serviceInstance := range this {
+		output[keyFunc(serviceInstance)] = serviceInstance
+	}
+}

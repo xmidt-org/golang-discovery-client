@@ -40,3 +40,7 @@ var _ KeyFunc = InstanceId
 type Keys interface {
 	Add(string)
 }
+
+// KeyMap is a convenient map type which can store both the result of a KeyFunc
+// and the associated ServiceInstance
+type KeyMap map[string]*discovery.ServiceInstance
