@@ -61,7 +61,7 @@ func printService(logger service.Logger, category string, instance *discovery.Se
 		"\t%-8.8s | %s | %s",
 		category,
 		instance.Id,
-		service.HttpAddress(service),
+		service.HttpAddress(instance),
 	)
 }
 
@@ -88,7 +88,7 @@ func printUpdates(logger service.Logger, serviceName string, categories map[stri
 func initialinstances(logger service.Logger, discovery service.Discovery) map[string]service.Instances {
 	instances := make(map[string]service.Instances, discovery.ServiceCount())
 	for _, serviceName := range discovery.ServiceNames() {
-		if instances, err := discovery.Fetchinstances(serviceName); err != nil {
+		if instances, err := discovery.FetchServices(serviceName); err != nil {
 			logger.Error("Unable to fetch initial [%s] instances: %v", serviceName, err)
 			instances[serviceName] = make(service.Instances, 0)
 		} else {
@@ -116,7 +116,7 @@ func monitorinstances(logger service.Logger, discovery service.Discovery, servic
 		service.ListenerFunc(func(serviceName string, newInstances service.Instances) {
 			if oldInstances, ok := serviceMap[serviceName]; ok {
 				printUpdates(logger, serviceName, categorizeinstances(oldInstances, newInstances))
-				instances[serviceName] = newInstances
+				serviceMap[serviceName] = newInstances
 			} else {
 				logger.Error("Unknown service: [%s]", serviceName)
 			}
