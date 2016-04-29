@@ -28,13 +28,12 @@ func categorizeServices(oldServices, newServices service.Instances) (categories 
 	categories[CategoryExisting] = make(service.Instances, 0, maxServiceCount)
 	categories[CategoryNew] = make(service.Instances, 0, maxServiceCount)
 	categories[CategoryRemoved] = make(service.Instances, 0, maxServiceCount)
-	newServices := make(service.Instances, 0, maxServiceCount)
 
 	newServicesById := make(service.KeyMap, len(newServices))
 	newServices.ToKeyMap(service.InstanceId, newServicesById)
 
-	for _, oldInstance := range oldInstances {
-		id := oldInstance.Id
+	for _, oldService := range oldServices {
+		id := oldService.Id
 		if existingService, ok := newServicesById[id]; ok {
 			delete(newServicesById, id)
 			categories[CategoryExisting] = append(categories[CategoryExisting], existingInstance)
@@ -46,13 +45,6 @@ func categorizeServices(oldServices, newServices service.Instances) (categories 
 	for _, instance := range newInstancesById {
 		categories[CategoryNew] = append(categories[CategoryNew], existingInstance)
 	}
-
-	logger.Info(
-		"\tSummary:  There were %d %s service(s).  There are now %d service(s).",
-		len(oldInstances),
-		serviceName,
-		len(newInstances),
-	)
 }
 
 func printService(logger service.Logger, category string, service *discovery.ServiceInstance) {
