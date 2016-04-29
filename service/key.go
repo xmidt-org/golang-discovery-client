@@ -29,6 +29,11 @@ func HttpAddress(serviceInstance *discovery.ServiceInstance) string {
 
 var _ KeyFunc = HttpAddress
 
+// InstanceId is a KeyFunc which maps a service instance to its unique identifier
+func InstanceId(serviceInstance *discovery.ServiceInstance) string {
+	return serviceInstance.Id
+}
+
 // Keys defines the method set for types which can receive the output of a KeyFunc
 type Keys interface {
 	Add(string)
