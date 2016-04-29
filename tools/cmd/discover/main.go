@@ -10,32 +10,26 @@ import (
 	"github.com/foursquare/fsgo/net/discovery"
 )
 
+type Category string
+type Categories map[Category]service.Instances
+type ServiceMap map[string]service.Instances
+
 const (
 	// CategoryInitial is the category assigned to all instances when the discovery client is first queried
-	CategoryInitial string = "INITIAL"
+	CategoryInitial Category = "INITIAL"
 
 	// CategoryExisting is the category assigned to instances which didn't change from one watch event to the next
-	CategoryExisting string = "EXISTING"
+	CategoryExisting Category = "EXISTING"
 
 	// CategoryNew is the category assigned to brand new instances
-	CategoryNew string = "NEW"
+	CategoryNew Category = "NEW"
 
 	// CategoryRemoved is the category assigned to instances which are no longer in the watched list
-	CategoryRemoved string = "REMOVED"
+	CategoryRemoved Category = "REMOVED"
 )
 
-func categorizeinstances(oldInstances, newInstances service.Instances) (categories map[string]service.Instances) {
-	categories = make(map[string]service.Instances, 3)
-
-	maxServiceCount := len(oldInstances)
-	if maxServiceCount < len(newInstances) {
-		maxServiceCount = len(newInstances)
-	}
-
-	categories[CategoryExisting] = make(service.Instances, 0, maxServiceCount)
-	categories[CategoryNew] = make(service.Instances, 0, maxServiceCount)
-	categories[CategoryRemoved] = make(service.Instances, 0, maxServiceCount)
-
+func categorizeinstances(oldInstances, newInstances service.Instances) Categories {
+	categories := make(Categories)
 	newInstancesByID := make(service.KeyMap, len(newInstances))
 	newInstances.ToKeyMap(service.InstanceId, newInstancesByID)
 
@@ -65,7 +59,7 @@ func printService(logger service.Logger, category string, instance *discovery.Se
 	)
 }
 
-func printUpdates(logger service.Logger, serviceName string, categories map[string]service.Instances) {
+func printUpdates(logger service.Logger, serviceName string, categories Categories) {
 	logger.Info("\t##### %s #####", serviceName)
 
 	totalServiceCount := 0
@@ -85,22 +79,22 @@ func printUpdates(logger service.Logger, serviceName string, categories map[stri
 	)
 }
 
-func initialinstances(logger service.Logger, discovery service.Discovery) map[string]service.Instances {
-	instances := make(map[string]service.Instances, discovery.ServiceCount())
+func initialinstances(logger service.Logger, discovery service.Discovery) ServiceMap {
+	serviceMap := make(ServiceMap, discovery.ServiceCount())
 	for _, serviceName := range discovery.ServiceNames() {
 		if instances, err := discovery.FetchServices(serviceName); err != nil {
 			logger.Error("Unable to fetch initial [%s] instances: %v", serviceName, err)
-			instances[serviceName] = make(service.Instances, 0)
+			serviceMap[serviceName] = make(service.Instances)
 		} else {
-			instances[serviceName] = instances
+			serviceMap[serviceName] = instances
 		}
 	}
 
-	return instances
+	return
 }
 
-func printInitial(logger service.Logger, initialinstances map[string]service.Instances) {
-	for serviceName, instances := range initialinstances {
+func printInitial(logger service.Logger, initial ServiceMap) {
+	for serviceName, instances := range initial {
 		logger.Info("\t##### %s #####", serviceName)
 
 		for _, service := range instances {
@@ -111,7 +105,7 @@ func printInitial(logger service.Logger, initialinstances map[string]service.Ins
 	}
 }
 
-func monitorinstances(logger service.Logger, discovery service.Discovery, serviceMap map[string]service.Instances) {
+func monitorinstances(logger service.Logger, discovery service.Discovery, serviceMap ServiceMap) {
 	discovery.AddListenerForAll(
 		service.ListenerFunc(func(serviceName string, newInstances service.Instances) {
 			if oldInstances, ok := serviceMap[serviceName]; ok {
