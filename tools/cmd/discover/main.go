@@ -84,7 +84,7 @@ func initialinstances(logger service.Logger, discovery service.Discovery) Servic
 	for _, serviceName := range discovery.ServiceNames() {
 		if instances, err := discovery.FetchServices(serviceName); err != nil {
 			logger.Error("Unable to fetch initial [%s] instances: %v", serviceName, err)
-			serviceMap[serviceName] = make(service.Instances)
+			serviceMap[serviceName] = make(service.Instances, 0)
 		} else {
 			serviceMap[serviceName] = instances
 		}
