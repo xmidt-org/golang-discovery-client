@@ -22,9 +22,10 @@ func (this Instances) Len() int {
 func (this Instances) String() string {
 	var output bytes.Buffer
 	output.WriteRune('[')
+	initialLength := output.Len()
 
 	for _, serviceInstance := range this {
-		if output.Len() > 0 {
+		if output.Len() > initialLength {
 			output.WriteRune(',')
 		}
 
