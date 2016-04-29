@@ -34,6 +34,8 @@ func InstanceId(serviceInstance *discovery.ServiceInstance) string {
 	return serviceInstance.Id
 }
 
+var _ KeyFunc = InstanceId
+
 // Keys defines the method set for types which can receive the output of a KeyFunc
 type Keys interface {
 	Add(string)
