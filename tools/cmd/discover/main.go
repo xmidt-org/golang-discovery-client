@@ -71,7 +71,7 @@ func printUpdates(logger service.Logger, serviceName string, categories Categori
 	}
 
 	logger.Info(
-		"[%d] total, [%d] existing (unchanged), [%d] new, [%d] removed",
+		"\t##### [%d] total, [%d] existing (unchanged), [%d] new, [%d] removed #####",
 		totalServiceCount,
 		len(categories[CategoryExisting]),
 		len(categories[CategoryNew]),
