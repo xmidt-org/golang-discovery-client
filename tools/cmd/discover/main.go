@@ -39,7 +39,7 @@ func categorizeinstances(oldInstances, newInstances service.Instances) Categorie
 			delete(newInstancesByID, id)
 			categories[CategoryExisting] = append(categories[CategoryExisting], existingInstance)
 		} else {
-			categories[CategoryRemoved] = append(categories[CategoryRemoved], existingInstance)
+			categories[CategoryRemoved] = append(categories[CategoryRemoved], oldInstance)
 		}
 	}
 
