@@ -11,56 +11,56 @@ import (
 )
 
 const (
-	// CategoryInitial is the category assigned to all services when the discovery client is first queried
+	// CategoryInitial is the category assigned to all instances when the discovery client is first queried
 	CategoryInitial string = "INITIAL"
 
-	// CategoryExisting is the category assigned to services which didn't change from one watch event to the next
+	// CategoryExisting is the category assigned to instances which didn't change from one watch event to the next
 	CategoryExisting string = "EXISTING"
 
-	// CategoryNew is the category assigned to brand new services
+	// CategoryNew is the category assigned to brand new instances
 	CategoryNew string = "NEW"
 
-	// CategoryRemoved is the category assigned to services which are no longer in the watched list
+	// CategoryRemoved is the category assigned to instances which are no longer in the watched list
 	CategoryRemoved string = "REMOVED"
 )
 
-func categorizeServices(oldServices, newServices service.Instances) (categories map[string]service.Instances) {
+func categorizeinstances(oldInstances, newInstances service.Instances) (categories map[string]service.Instances) {
 	categories = make(map[string]service.Instances, 3)
 
-	maxServiceCount := len(oldServices)
-	if maxServiceCount < len(newServices) {
-		maxServiceCount = len(newServices)
+	maxServiceCount := len(oldInstances)
+	if maxServiceCount < len(newInstances) {
+		maxServiceCount = len(newInstances)
 	}
 
 	categories[CategoryExisting] = make(service.Instances, 0, maxServiceCount)
 	categories[CategoryNew] = make(service.Instances, 0, maxServiceCount)
 	categories[CategoryRemoved] = make(service.Instances, 0, maxServiceCount)
 
-	newServicesByID := make(service.KeyMap, len(newServices))
-	newServices.ToKeyMap(service.InstanceId, newServicesByID)
+	newInstancesByID := make(service.KeyMap, len(newInstances))
+	newInstances.ToKeyMap(service.InstanceId, newInstancesByID)
 
-	for _, oldService := range oldServices {
-		id := oldService.Id
-		if existingService, ok := newServicesByID[id]; ok {
-			delete(newServicesByID, id)
-			categories[CategoryExisting] = append(categories[CategoryExisting], existingService)
+	for _, oldInstance := range oldInstances {
+		id := oldInstance.Id
+		if existingInstance, ok := newInstancesByID[id]; ok {
+			delete(newInstancesByID, id)
+			categories[CategoryExisting] = append(categories[CategoryExisting], existingInstance)
 		} else {
-			categories[CategoryRemoved] = append(categories[CategoryRemoved], existingService)
+			categories[CategoryRemoved] = append(categories[CategoryRemoved], existingInstance)
 		}
 	}
 
-	for _, newService := range newServicesByID {
-		categories[CategoryNew] = append(categories[CategoryNew], newService)
+	for _, newInstance := range newInstancesByID {
+		categories[CategoryNew] = append(categories[CategoryNew], newInstance)
 	}
 
 	return
 }
 
-func printService(logger service.Logger, category string, service *discovery.ServiceInstance) {
+func printService(logger service.Logger, category string, instance *discovery.ServiceInstance) {
 	logger.Info(
 		"\t%-8.8s | %s | %s",
 		category,
-		service.Id,
+		instance.Id,
 		service.HttpAddress(service),
 	)
 }
@@ -69,9 +69,9 @@ func printUpdates(logger service.Logger, serviceName string, categories map[stri
 	logger.Info("\t##### %s #####", serviceName)
 
 	totalServiceCount := 0
-	for category, services := range categories {
-		totalServiceCount += len(services)
-		for _, service := range services {
+	for category, instances := range categories {
+		totalServiceCount += len(instances)
+		for _, service := range instances {
 			printService(logger, category, service)
 		}
 	}
@@ -85,38 +85,38 @@ func printUpdates(logger service.Logger, serviceName string, categories map[stri
 	)
 }
 
-func initialServices(logger service.Logger, discovery service.Discovery) map[string]service.Instances {
-	services := make(map[string]service.Instances, discovery.ServiceCount())
+func initialinstances(logger service.Logger, discovery service.Discovery) map[string]service.Instances {
+	instances := make(map[string]service.Instances, discovery.ServiceCount())
 	for _, serviceName := range discovery.ServiceNames() {
-		if instances, err := discovery.FetchServices(serviceName); err != nil {
-			logger.Error("Unable to fetch initial [%s] services: %v", serviceName, err)
-			services[serviceName] = make(service.Instances, 0)
+		if instances, err := discovery.Fetchinstances(serviceName); err != nil {
+			logger.Error("Unable to fetch initial [%s] instances: %v", serviceName, err)
+			instances[serviceName] = make(service.Instances, 0)
 		} else {
-			services[serviceName] = instances
+			instances[serviceName] = instances
 		}
 	}
 
-	return services
+	return instances
 }
 
-func printInitial(logger service.Logger, initialServices map[string]service.Instances) {
-	for serviceName, services := range initialServices {
+func printInitial(logger service.Logger, initialinstances map[string]service.Instances) {
+	for serviceName, instances := range initialinstances {
 		logger.Info("\t##### %s #####", serviceName)
 
-		for _, service := range services {
+		for _, service := range instances {
 			printService(logger, CategoryInitial, service)
 		}
 
-		logger.Info("\tInitial count of [%s] services: %d", serviceName, len(services))
+		logger.Info("\tInitial count of [%s] instances: %d", serviceName, len(instances))
 	}
 }
 
-func monitorServices(logger service.Logger, discovery service.Discovery, serviceMap map[string]service.Instances) {
+func monitorinstances(logger service.Logger, discovery service.Discovery, serviceMap map[string]service.Instances) {
 	discovery.AddListenerForAll(
-		service.ListenerFunc(func(serviceName string, newServices service.Instances) {
-			if oldServices, ok := serviceMap[serviceName]; ok {
-				printUpdates(logger, serviceName, categorizeServices(oldServices, newServices))
-				services[serviceName] = newServices
+		service.ListenerFunc(func(serviceName string, newInstances service.Instances) {
+			if oldInstances, ok := serviceMap[serviceName]; ok {
+				printUpdates(logger, serviceName, categorizeinstances(oldInstances, newInstances))
+				instances[serviceName] = newInstances
 			} else {
 				logger.Error("Unknown service: [%s]", serviceName)
 			}
@@ -137,9 +137,9 @@ func main() {
 		os.Exit(1)
 	}
 
-	serviceMap := initialServices(logger, discovery)
+	serviceMap := initialinstances(logger, discovery)
 	printInitial(logger, serviceMap)
-	monitorServices(logger, discovery, serviceMap)
+	monitorinstances(logger, discovery, serviceMap)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
