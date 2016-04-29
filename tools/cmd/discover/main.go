@@ -7,27 +7,14 @@ import (
 	"github.com/foursquare/fsgo/net/discovery"
 	"os"
 	"os/signal"
-	"strconv"
 )
 
 func printService(logger service.Logger, status string, instance *discovery.ServiceInstance) {
-	port := "?"
-	portType := "?"
-	if instance.Port != nil {
-		port = strconv.Itoa(*instance.Port)
-		portType = "http"
-	} else if instance.SslPort != nil {
-		port = strconv.Itoa(*instance.SslPort)
-		portType = "https"
-	}
-
 	logger.Info(
-		"\t%-8.8s | %-37.37s | %-5.5s | %-32.32s | %-5.5s",
+		"\t%-8.8s | %s | %s",
 		status,
 		instance.Id,
-		portType,
-		instance.Address,
-		port,
+		service.HttpAddress(instance),
 	)
 }
 
