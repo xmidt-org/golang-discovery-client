@@ -51,11 +51,28 @@ func categorizeinstances(oldInstances, newInstances service.Instances) Categorie
 }
 
 func printService(logger service.Logger, category Category, instance *discovery.ServiceInstance) {
+	escapeStart := ""
+	escapeStop := ""
+
+	switch category {
+	case CategoryNew:
+		// green, bold
+		escapeStart = "\\033[32;1m"
+		escapeStop = "\\033[0m"
+
+	case CategoryRemoved:
+		// red
+		escapeStart = "\\033[31m"
+		escapeStop = "\\033[0m"
+	}
+
 	logger.Info(
-		"\t%-8.8s | %s | %s",
+		"\t%s%-8.8s | %s | %s%s",
+		escapeStart,
 		category,
 		instance.Id,
 		service.HttpAddress(instance),
+		escapeStop,
 	)
 }
 
