@@ -57,13 +57,13 @@ func printService(logger service.Logger, category Category, instance *discovery.
 	switch category {
 	case CategoryNew:
 		// green, bold
-		escapeStart = "\\033[32;1m"
-		escapeStop = "\\033[0m"
+		escapeStart = "\033[32;1m"
+		escapeStop = "\033[0m"
 
 	case CategoryRemoved:
 		// red
-		escapeStart = "\\033[31m"
-		escapeStop = "\\033[0m"
+		escapeStart = "\033[31m"
+		escapeStop = "\033[0m"
 	}
 
 	logger.Info(
