@@ -270,6 +270,15 @@ func (this *curatorDiscovery) BlockUntilConnectedTimeout(maxWaitTime time.Durati
 	return this.curatorConnection.BlockUntilConnectedTimeout(maxWaitTime)
 }
 
+// RequireConnected returns a function which can test whether an HTTP request
+// should proceed.  Requests are allowed only if the underlying Zookeeper connection
+// is active.
+func RequireConnected(discovery Discovery) func(*http.Request) (error, bool) {
+	return func(request *http.Request) (error, bool) {
+		return nil, discovery.Connected()
+	}
+}
+
 // DiscoveryBuilder provides a configurable DiscoveryFactory implementation.  This type
 // also implements a standard JSON configuration.
 type DiscoveryBuilder struct {
