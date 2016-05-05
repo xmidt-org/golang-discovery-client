@@ -7,6 +7,7 @@ import (
 	"github.com/foursquare/fsgo/net/discovery"
 	"github.com/samuel/go-zookeeper/zk"
 	"io"
+	"net/http"
 	"time"
 )
 
