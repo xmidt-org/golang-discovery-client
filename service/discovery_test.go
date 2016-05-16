@@ -169,6 +169,9 @@ func TestTolerateDisconnection(t *testing.T) {
 	timer := time.NewTimer(time.Second * 15)
 	defer timer.Stop()
 
+	// this is necessary due mainly to timing: it's very likely the listener
+	// will get an empty instances, since recovery from disconnection might
+	// read no services from zookeeper.
 	for len(update) != 1 {
 		select {
 		case update = <-updates:
