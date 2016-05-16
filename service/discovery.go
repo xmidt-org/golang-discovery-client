@@ -6,8 +6,8 @@ import (
 	"github.com/foursquare/curator.go"
 	"github.com/foursquare/fsgo/net/discovery"
 	"github.com/samuel/go-zookeeper/zk"
-	"io"
-	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -15,11 +15,19 @@ const (
 	DefaultWatchCooldown = time.Duration(5 * time.Second)
 )
 
+const (
+	discoveryStateNotStarted = uint32(iota)
+	discoveryStateRunning
+	discoveryStateStopped
+)
+
+var (
+	ErrorNotRunning error = errors.New("Discovery client not running")
+)
+
 // Discovery represents a service discovery endpoint.  Instances are
 // created using a DiscoveryBuilder.
 type Discovery interface {
-	io.Closer
-
 	// Connected indicates whether this discovery is actually connected to a zookeeper ensemble
 	Connected() bool
 
@@ -54,19 +62,26 @@ type Discovery interface {
 	// abort with an error if the specified time elapses without the underlying
 	// Curator implementation transitioning into a connected state.
 	BlockUntilConnectedTimeout(maxWaitTime time.Duration) error
+
+	// Run starts this Discovery instance.  It is idempotent.
+	Run(waitGroup *sync.WaitGroup, shutdown <-chan struct{}) error
 }
 
 // curatorDiscovery is the default, Curator-based Service Discovery subsystem.
 type curatorDiscovery struct {
+	state             uint32
+	connection        string
 	basePath          string
+	registrations     Instances
+	serviceWatcherSet *serviceWatcherSet
 	curatorConnection discovery.Conn
 	logger            Logger
 	serviceDiscovery  *discovery.ServiceDiscovery
-	serviceWatcherSet *serviceWatcherSet
 
 	connectionStates chan curator.ConnectionState
 	curatorEvents    chan curator.CuratorEvent
 	operations       chan func()
+	once             sync.Once
 }
 
 // StateChanged monitors the Curator connection for changes, and updates this Discovery
@@ -82,124 +97,41 @@ func (this *curatorDiscovery) EventReceived(client curator.CuratorFramework, eve
 	return nil
 }
 
-// initialize creates the various data structures necessary for the curatorDiscovery
-// to do its job.  Concurrency stuff like channels is handled in monitor().
-func (this *curatorDiscovery) initialize(
-	registrations Instances,
-	watches []string) error {
-
-	this.logger.Debug("initialize(registrations=%s, watches=%s)", registrations, watches)
-	var err error
-
-	if len(registrations) > 0 {
-		this.serviceDiscovery = discovery.NewServiceDiscovery(this.curatorConnection, this.basePath)
-		err = this.serviceDiscovery.MaintainRegistrations()
-		if err != nil {
-			return errors.New(
-				fmt.Sprintf("Error while starting up service discovery: %v", err),
-			)
-		}
-
-		err = registrations.RegisterWith(this.serviceDiscovery)
-		if err != nil {
-			return errors.New(
-				fmt.Sprintf("Error while registering services: %v", err),
-			)
-		}
-	}
-
-	this.serviceWatcherSet, err = newServiceWatcherSet(
-		watches,
-		this.curatorConnection,
-		this.basePath,
-	)
-
-	if err != nil {
-		return errors.New(
-			fmt.Sprintf("Error while starting service watchers: %v", err),
-		)
-	}
-
-	return nil
+func (this *curatorDiscovery) running() bool {
+	return atomic.LoadUint32(&this.state) == discoveryStateRunning
 }
 
-// handleWatchEvent implements the logic executed in response to Curator WATCH events
+// handleWatchEvent implements the logic executed in response to Curator WATCH events.
+// This method MUST be invoked on the goroutine that processes operations.
 func (this *curatorDiscovery) handleWatchEvent(event curator.CuratorEvent) {
 	this.logger.Debug("handleWatchEvent(%v)", event)
 	watchedEvent := event.WatchedEvent()
 	if watchedEvent != nil && watchedEvent.State == zk.StateHasSession {
 		this.logger.Warn("Recovering from zookeeper connection disruption")
 		this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
-			this.operations <- func() {
-				instances, err := serviceWatcher.readServices()
-				if err != nil {
-					this.logger.Warn("Error while attempting to read %s services after connection disruption: %v", serviceWatcher.serviceName, err)
-				} else {
-					serviceWatcher.dispatch(instances)
-				}
-			}
-		})
-	} else if serviceWatcher, ok := this.serviceWatcherSet.findByPath(event.Path()); ok {
-		this.operations <- func() {
-			instances, err := serviceWatcher.readServicesAndWatch()
+			instances, err := serviceWatcher.readServices()
 			if err != nil {
-				this.logger.Warn("Error while reading services: %v\n", err)
+				this.logger.Warn("Error while attempting to read %s services after connection disruption: %v", serviceWatcher.serviceName, err)
 			} else {
 				serviceWatcher.dispatch(instances)
 			}
+		})
+	} else if serviceWatcher, ok := this.serviceWatcherSet.findByPath(event.Path()); ok {
+		instances, err := serviceWatcher.readServicesAndWatch()
+		if err != nil {
+			this.logger.Warn("Error while reading services: %v\n", err)
+		} else {
+			serviceWatcher.dispatch(instances)
 		}
 	}
 }
 
-// monitor manages channel lifecycle and concurrently observes and reacts
-// to discovery events
-func (this *curatorDiscovery) monitor() {
-	this.logger.Debug("monitor()")
-	this.connectionStates = make(chan curator.ConnectionState, 10)
-	this.curatorEvents = make(chan curator.CuratorEvent, 10)
-	this.operations = make(chan func(), 100)
-	this.curatorConnection.ConnectionStateListenable().AddListener(this)
-	this.curatorConnection.CuratorListenable().AddListener(this)
-
-	go func() {
-		// handle operations in a separate goroutine to allow
-		// the select code below to concurrently dispatch operations
-		for operation := range this.operations {
-			operation()
-		}
-	}()
-
-	go func() {
-		defer func() {
-			this.curatorConnection.ConnectionStateListenable().RemoveListener(this)
-			this.curatorConnection.CuratorListenable().RemoveListener(this)
-			close(this.connectionStates)
-			close(this.curatorEvents)
-			close(this.operations)
-		}()
-
-		for {
-			select {
-			case newState := <-this.connectionStates:
-				this.logger.Debug("connection state: %v\n", newState)
-			case event := <-this.curatorEvents:
-				this.logger.Debug("curator event: type=%s, path=%s, error=%v, children=%v\n", event.Type(), event.Path(), event.Err(), event.Children())
-
-				switch event.Type() {
-				case curator.CLOSING:
-					this.logger.Info("Curator closing.  Service Discovery shutting down.")
-					return
-				case curator.WATCHED:
-					this.handleWatchEvent(event)
-				}
-			}
-		}
-	}()
-}
-
 func (this *curatorDiscovery) Connected() bool {
-	this.logger.Debug("Connected()")
-	return this.curatorConnection.ZookeeperClient().Connected()
+	if this.running() {
+		return this.curatorConnection.ZookeeperClient().Connected()
+	}
+
+	return false
 }
 
 func (this *curatorDiscovery) ServiceCount() int {
@@ -211,73 +143,140 @@ func (this *curatorDiscovery) ServiceNames() []string {
 }
 
 func (this *curatorDiscovery) FetchServices(serviceName string) (Instances, error) {
-	this.logger.Debug("FetchServices(%s)", serviceName)
-	serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName)
-	if ok {
-		return serviceWatcher.readServices()
+	if this.running() {
+		if serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName); ok {
+			return serviceWatcher.readServices()
+		}
+	} else {
+		return nil, ErrorNotRunning
 	}
 
 	return nil, errors.New(fmt.Sprintf("No such service: %s", serviceName))
 }
 
 func (this *curatorDiscovery) AddListenerForAll(listener Listener) {
-	this.logger.Debug("AddListenerForAll(%v)", listener)
-	this.operations <- func() {
-		this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
-			serviceWatcher.addListener(listener)
-		})
-	}
+	this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
+		serviceWatcher.addListener(listener)
+	})
 }
 
 func (this *curatorDiscovery) RemoveListenerFromAll(listener Listener) {
-	this.logger.Debug("RemoveListenerFromAll(%v)", listener)
-	this.operations <- func() {
-		this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
-			serviceWatcher.removeListener(listener)
-		})
-	}
+	this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
+		serviceWatcher.removeListener(listener)
+	})
 }
 
 func (this *curatorDiscovery) AddListener(serviceName string, listener Listener) {
-	this.logger.Debug("AddListener(%s, %v)", serviceName, listener)
-	serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName)
-	if ok {
-		this.operations <- func() {
-			serviceWatcher.addListener(listener)
-		}
+	if serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName); ok {
+		serviceWatcher.addListener(listener)
 	}
 }
 
 func (this *curatorDiscovery) RemoveListener(serviceName string, listener Listener) {
-	this.logger.Debug("RemoveListener(%s, %v)", serviceName, listener)
-	serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName)
-	if ok {
-		this.operations <- func() {
-			serviceWatcher.removeListener(listener)
-		}
+	if serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName); ok {
+		serviceWatcher.removeListener(listener)
 	}
-}
-
-func (this *curatorDiscovery) Close() error {
-	this.logger.Debug("Close()")
-	return this.curatorConnection.Close()
 }
 
 func (this *curatorDiscovery) BlockUntilConnected() error {
-	return this.curatorConnection.BlockUntilConnected()
+	if this.running() {
+		return this.curatorConnection.BlockUntilConnected()
+	}
+
+	return ErrorNotRunning
 }
 
 func (this *curatorDiscovery) BlockUntilConnectedTimeout(maxWaitTime time.Duration) error {
-	return this.curatorConnection.BlockUntilConnectedTimeout(maxWaitTime)
+	if this.running() {
+		return this.curatorConnection.BlockUntilConnectedTimeout(maxWaitTime)
+	}
+
+	return ErrorNotRunning
 }
 
-// RequireConnected returns a function which can test whether an HTTP request
-// should proceed.  Requests are allowed only if the underlying Zookeeper connection
-// is active.
-func RequireConnected(discovery Discovery) func(*http.Request) (error, bool) {
-	return func(request *http.Request) (error, bool) {
-		return nil, discovery.Connected()
-	}
+func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan struct{}) (err error) {
+	this.logger.Debug("Run()")
+	this.once.Do(func() {
+		this.logger.Info("Discovery client starting")
+		this.curatorConnection, err = discovery.DefaultConn(this.connection)
+		if err != nil {
+			return
+		}
+
+		defer func() {
+			if err != nil {
+				this.curatorConnection.Close()
+			}
+		}()
+
+		if len(this.registrations) > 0 {
+			this.logger.Info("Maintaining registrations: %s", this.registrations)
+			this.serviceDiscovery = discovery.NewServiceDiscovery(this.curatorConnection, this.basePath)
+			err = this.serviceDiscovery.MaintainRegistrations()
+			if err != nil {
+				return
+			}
+
+			err = this.registrations.RegisterWith(this.serviceDiscovery)
+			if err != nil {
+				return
+			}
+		}
+
+		this.logger.Info("Watching services: %s", this.serviceWatcherSet.serviceNames)
+		this.serviceWatcherSet.initialize(this.curatorConnection)
+
+		this.connectionStates = make(chan curator.ConnectionState, 10)
+		this.curatorEvents = make(chan curator.CuratorEvent, 10)
+		this.operations = make(chan func(), 100)
+		this.curatorConnection.ConnectionStateListenable().AddListener(this)
+		this.curatorConnection.CuratorListenable().AddListener(this)
+
+		waitGroup.Add(1)
+		go func() {
+			defer waitGroup.Done()
+			defer close(this.connectionStates)
+			defer close(this.curatorEvents)
+			defer close(this.operations)
+			defer func() {
+				this.logger.Info("Discovery client shutting down")
+				atomic.StoreUint32(&this.state, discoveryStateStopped)
+				this.curatorConnection.ConnectionStateListenable().RemoveListener(this)
+				this.curatorConnection.CuratorListenable().RemoveListener(this)
+			}()
+
+			atomic.StoreUint32(&this.state, discoveryStateRunning)
+
+			for {
+				select {
+				case <-shutdown:
+					if err := this.curatorConnection.Close(); err != nil {
+						this.logger.Warn("Error while closing Curator: %v", err)
+					}
+
+					return
+				case newState := <-this.connectionStates:
+					this.logger.Debug("connection state: %v\n", newState)
+				case operation := <-this.operations:
+					operation()
+				case event := <-this.curatorEvents:
+					this.logger.Debug("curator event: type=%s, path=%s, error=%v, children=%v\n", event.Type(), event.Path(), event.Err(), event.Children())
+
+					switch event.Type() {
+					case curator.CLOSING:
+						// no need to close the curator here, this should be an edge case
+						// since clients will normally close(shutdown) to shut this discovery instance down
+						this.logger.Info("Curator closing.  Service Discovery shutting down.")
+						return
+					case curator.WATCHED:
+						this.handleWatchEvent(event)
+					}
+				}
+			}
+		}()
+	})
+
+	return
 }
 
 // DiscoveryBuilder provides a configurable DiscoveryFactory implementation.  This type
@@ -306,43 +305,23 @@ type DiscoveryBuilder struct {
 
 // NewDiscovery creates a distinct Discovery instance from this DiscoveryBuilder.  Changes
 // to this builder will not affect the newly created Discovery instance, and vice versa.
-// The returned Discovery object, along with the underlying Curator infrastructure, will have
-// been started.  Errors returned by this method most commonly refer to errors during
-// startup.
-func (this *DiscoveryBuilder) NewDiscovery(logger Logger, blockUntilConnected bool) (product Discovery, err error) {
+func (this *DiscoveryBuilder) NewDiscovery(logger Logger) Discovery {
 	logger.Debug("NewDiscovery()")
-	curatorConnection, err := discovery.DefaultConn(this.Connection)
-	if err != nil {
-		logger.Error("Unable to start curator using connection %s: %v", this.Connection, err)
-		return
+
+	registrations := make(Instances, len(this.Registrations))
+	for index := 0; index < len(registrations); index++ {
+		clone := *this.Registrations[index]
+		registrations[index] = &clone
 	}
 
-	defer func() {
-		if err != nil {
-			logger.Error("Shutting down curator due to error: %v", err)
-			curatorConnection.Close()
-		}
-	}()
+	watches := make([]string, len(this.Watches))
+	copy(watches, this.Watches)
 
-	if blockUntilConnected {
-		err = curatorConnection.BlockUntilConnected()
-		if err != nil {
-			return
-		}
-	}
-
-	implementation := &curatorDiscovery{
+	return &curatorDiscovery{
+		connection:        this.Connection,
 		basePath:          this.BasePath,
-		curatorConnection: curatorConnection,
+		registrations:     registrations,
+		serviceWatcherSet: newServiceWatcherSet(this.Watches, this.BasePath),
 		logger:            logger,
 	}
-
-	err = implementation.initialize(this.Registrations, this.Watches)
-	if err != nil {
-		return
-	}
-
-	implementation.monitor()
-	product = implementation
-	return
 }

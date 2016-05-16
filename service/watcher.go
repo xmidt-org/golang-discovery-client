@@ -6,36 +6,37 @@ import (
 	"github.com/foursquare/curator.go"
 	"github.com/foursquare/fsgo/net/discovery"
 	"github.com/samuel/go-zookeeper/zk"
+	"sync"
 )
 
 // serviceWatcher holds meta data about one particular service that's being
 // observed for changes.  This type also implements a simple API for interacting
-// with Zookeeper.  Concurrency is handled by the containing Discovery.
+// with Zookeeper.
 type serviceWatcher struct {
 	curatorConnection  discovery.Conn
 	instanceSerializer discovery.InstanceSerializer
 	servicePath        string
 	serviceName        string
-	listeners          []Listener
+
+	listenerMutex sync.Mutex
+	listeners     []Listener
 }
 
 // addListener appends a listener to this watcher
 func (this *serviceWatcher) addListener(listener Listener) {
-	if listener != nil {
-		this.listeners = append(this.listeners, listener)
-	}
+	this.listenerMutex.Lock()
+	defer this.listenerMutex.Unlock()
+	this.listeners = append(this.listeners, listener)
 }
 
 // removeListener removes a listener to this watcher
 func (this *serviceWatcher) removeListener(listener Listener) bool {
-	if listener != nil {
-		if len(this.listeners) > 0 {
-			for index, candidate := range this.listeners {
-				if candidate == listener {
-					this.listeners = append(this.listeners[:index], this.listeners[index+1:]...)
-					return true
-				}
-			}
+	this.listenerMutex.Lock()
+	defer this.listenerMutex.Unlock()
+	for index, candidate := range this.listeners {
+		if candidate == listener {
+			this.listeners = append(this.listeners[:index], this.listeners[index+1:]...)
+			return true
 		}
 	}
 
@@ -45,10 +46,10 @@ func (this *serviceWatcher) removeListener(listener Listener) bool {
 // dispatch broadcasts the given service Instances to all listeners associated
 // with this watcher
 func (this *serviceWatcher) dispatch(instances Instances) {
-	if len(this.listeners) > 0 {
-		for _, listener := range this.listeners {
-			listener.ServicesChanged(this.serviceName, instances)
-		}
+	this.listenerMutex.Lock()
+	defer this.listenerMutex.Unlock()
+	for _, listener := range this.listeners {
+		listener.ServicesChanged(this.serviceName, instances)
 	}
 }
 
@@ -108,7 +109,10 @@ func (this *serviceWatcher) readServicesAndWatch() (Instances, error) {
 	return this.fetchServices(childIds), nil
 }
 
-func (this *serviceWatcher) initialize() error {
+// initialize sets up this watcher with a curator connection and ensures that any necessary
+// znode paths exist
+func (this *serviceWatcher) initialize(curatorConnection discovery.Conn) error {
+	this.curatorConnection = curatorConnection
 	err := curator.NewEnsurePath(this.servicePath).Ensure(this.curatorConnection.ZookeeperClient())
 	if err != nil && err != zk.ErrNodeExists {
 		return errors.New(
@@ -135,11 +139,7 @@ type serviceWatcherSet struct {
 
 // newServiceWatcherSet is an internal Factory Method that creates one serviceWatcher
 // for each service name, then returns a serviceWatcherSet with the services mapped.
-func newServiceWatcherSet(
-	serviceNames []string,
-	curatorConnection discovery.Conn,
-	basePath string) (*serviceWatcherSet, error) {
-
+func newServiceWatcherSet(serviceNames []string, basePath string) *serviceWatcherSet {
 	watcherCount := len(serviceNames)
 	byName := make(map[string]*serviceWatcher, watcherCount)
 	byPath := make(map[string]*serviceWatcher, watcherCount)
@@ -153,14 +153,9 @@ func newServiceWatcherSet(
 
 		servicePath := basePath + "/" + serviceName
 		serviceWatcher := &serviceWatcher{
-			curatorConnection:  curatorConnection,
 			instanceSerializer: instanceSerializer,
 			servicePath:        servicePath,
 			serviceName:        serviceName,
-		}
-
-		if err := serviceWatcher.initialize(); err != nil {
-			return nil, err
 		}
 
 		byName[serviceWatcher.serviceName] = serviceWatcher
@@ -180,7 +175,7 @@ func newServiceWatcherSet(
 		index++
 	}
 
-	return serviceWatcherSet, nil
+	return serviceWatcherSet
 }
 
 func (this *serviceWatcherSet) serviceCount() int {
@@ -207,4 +202,15 @@ func (this *serviceWatcherSet) visit(visitor func(*serviceWatcher)) {
 	for _, serviceWatcher := range this.byName {
 		visitor(serviceWatcher)
 	}
+}
+
+func (this *serviceWatcherSet) initialize(curatorConnection discovery.Conn) error {
+	for _, serviceWatcher := range this.byName {
+		err := serviceWatcher.initialize(curatorConnection)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }

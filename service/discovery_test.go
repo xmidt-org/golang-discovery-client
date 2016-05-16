@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -18,9 +19,12 @@ const (
 func TestWatchAndAdvertise(t *testing.T) {
 	clusterTest := StartClusterTest(t, 1)
 	defer clusterTest.Stop()
+	waitGroup := &sync.WaitGroup{}
+	shutdown := make(chan struct{})
+	defer close(shutdown)
 
 	watchDiscovery := clusterTest.NewDiscovery(fmt.Sprintf(`{"basePath": "%s", "watches": ["%s"]}`, testBasePath, testServiceName))
-	defer watchDiscovery.Close()
+	watchDiscovery.Run(waitGroup, shutdown)
 
 	if count := watchDiscovery.ServiceCount(); count != 1 {
 		t.Errorf("ServiceCount() should have returned 1, instead returned %d", count)
@@ -63,7 +67,7 @@ func TestWatchAndAdvertise(t *testing.T) {
 			testPort,
 		),
 	)
-	defer advertiseDiscovery.Close()
+	advertiseDiscovery.Run(waitGroup, shutdown)
 
 	time.AfterFunc(3*DefaultWatchCooldown, func() {
 		t.Log("Timeout has elapsed")
@@ -96,9 +100,12 @@ func TestWatchAndAdvertise(t *testing.T) {
 func TestTolerateDisconnection(t *testing.T) {
 	clusterTest := StartClusterTest(t, 1)
 	defer clusterTest.Stop()
+	waitGroup := &sync.WaitGroup{}
+	shutdown := make(chan struct{})
+	defer close(shutdown)
 
 	watchDiscovery := clusterTest.NewDiscovery(fmt.Sprintf(`{"basePath": "%s", "watches": ["%s"]}`, testBasePath, testServiceName))
-	defer watchDiscovery.Close()
+	watchDiscovery.Run(waitGroup, shutdown)
 
 	updates := make(chan Instances, 1)
 	watchDiscovery.AddListener(
@@ -121,7 +128,7 @@ func TestTolerateDisconnection(t *testing.T) {
 			testPort,
 		),
 	)
-	defer advertiseDiscovery.Close()
+	advertiseDiscovery.Run(waitGroup, shutdown)
 
 	time.AfterFunc(3*DefaultWatchCooldown, func() {
 		t.Log("Timeout has elapsed")

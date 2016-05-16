@@ -140,12 +140,7 @@ func (this *ClusterTest) NewDiscoveryBuilder(configuration string) *DiscoveryBui
 
 // NewDiscovery creates a new Discovery instance using the supplied configuration.  See NewDiscoveryBuilder.
 func (this *ClusterTest) NewDiscovery(configuration string) Discovery {
-	discovery, err := this.NewDiscoveryBuilder(configuration).NewDiscovery(&testLogger{this.t}, true)
-	if err != nil {
-		this.t.Fatalf("Unable to start Discovery instance: %v", err)
-	}
-
-	return discovery
+	return this.NewDiscoveryBuilder(configuration).NewDiscovery(&testLogger{this.t})
 }
 
 func TestMain(m *testing.M) {
