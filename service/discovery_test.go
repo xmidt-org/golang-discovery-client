@@ -16,7 +16,7 @@ const (
 	testDeviceId    = "mac:112233445566"
 )
 
-func _TestWatchAndAdvertise(t *testing.T) {
+func TestWatchAndAdvertise(t *testing.T) {
 	clusterTest := StartClusterTest(t, 1)
 	defer clusterTest.Stop()
 	waitGroup := &sync.WaitGroup{}
@@ -166,7 +166,7 @@ func TestTolerateDisconnection(t *testing.T) {
 	}
 
 	var update Instances
-	timer := time.NewTimer(time.Second * 15)
+	timer := time.NewTimer(15 * time.Second)
 	defer timer.Stop()
 
 	// this is necessary due mainly to timing: it's very likely the listener

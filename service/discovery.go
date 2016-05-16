@@ -68,10 +68,12 @@ type Discovery interface {
 
 // curatorDiscovery is the default, Curator-based Service Discovery subsystem.
 type curatorDiscovery struct {
-	state             uint32
-	connection        string
-	basePath          string
-	registrations     Instances
+	state         uint32
+	connection    string
+	basePath      string
+	registrations Instances
+
+	watchCooldown     time.Duration
 	serviceWatcherSet *serviceWatcherSet
 	curatorConnection discovery.Conn
 	logger            Logger
@@ -118,7 +120,7 @@ func (this *curatorDiscovery) handleReconnect() {
 // if the path is recognized.
 func (this *curatorDiscovery) updateServices(path string) {
 	if serviceWatcher, ok := this.serviceWatcherSet.findByPath(path); ok {
-		this.logger.Debug("Updating [%s] services", serviceWatcher.serviceName)
+		this.logger.Info("Updating [%s] services", serviceWatcher.serviceName)
 		instances, err := serviceWatcher.readServicesAndWatch()
 		if err != nil {
 			this.logger.Warn("Error while updating services: %v", err)
@@ -256,15 +258,17 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 					}
 
 					return
-				case newState := <-this.connectionStates:
-					this.logger.Debug("connection state: %v", newState)
-					if newState == curator.RECONNECTED {
+
+				case connectionState := <-this.connectionStates:
+					this.logger.Debug("connection state: %v", connectionState)
+					if connectionState == curator.RECONNECTED {
 						this.handleReconnect()
 					}
-				case event := <-this.curatorEvents:
-					this.logger.Debug("curator event: %#v", event)
 
-					switch event.Type() {
+				case curatorEvent := <-this.curatorEvents:
+					this.logger.Debug("curator event: %#v", curatorEvent)
+
+					switch curatorEvent.Type() {
 					case curator.CLOSING:
 						// no need to close the curator here, this should be an edge case
 						// since clients will normally close(shutdown) to shut this discovery instance down
@@ -272,7 +276,7 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 						return
 					case curator.WATCHED:
 						this.logger.Debug("Watch event received from curator")
-						watchedEvent := event.WatchedEvent()
+						watchedEvent := curatorEvent.WatchedEvent()
 						if watchedEvent == nil {
 							this.logger.Warn("Nil watched event from Curator")
 						} else if path := watchedEvent.Path; len(path) > 0 {
@@ -308,7 +312,7 @@ type DiscoveryBuilder struct {
 
 	// WatchCooldown is the interval between noticing a service change and the
 	// time services are actually reread from zookeeper
-	WatchCooldown *time.Duration `json:"watchCooldown"`
+	WatchCooldown time.Duration `json:"watchCooldown"`
 }
 
 // NewDiscovery creates a distinct Discovery instance from this DiscoveryBuilder.  Changes
@@ -325,11 +329,17 @@ func (this *DiscoveryBuilder) NewDiscovery(logger Logger) Discovery {
 	watches := make([]string, len(this.Watches))
 	copy(watches, this.Watches)
 
+	watchCooldown := this.WatchCooldown
+	if watchCooldown < 1 {
+		watchCooldown = DefaultWatchCooldown
+	}
+
 	return &curatorDiscovery{
 		connection:        this.Connection,
 		basePath:          this.BasePath,
 		registrations:     registrations,
 		serviceWatcherSet: newServiceWatcherSet(this.Watches, this.BasePath),
 		logger:            logger,
+		watchCooldown:     watchCooldown,
 	}
 }
