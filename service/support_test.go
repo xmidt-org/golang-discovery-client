@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
-	"fmt"
 	"github.com/samuel/go-zookeeper/zk"
 	"io"
 	"os"
@@ -43,35 +42,6 @@ type logWriter struct {
 func (this *logWriter) Write(buffer []byte) (written int, err error) {
 	this.t.Logf("%s%s", this.prefix, string(buffer))
 	return len(buffer), nil
-}
-
-// testLogger implements service.Logger, redirecting output to the
-// test logs.
-type testLogger struct {
-	t *testing.T
-}
-
-func (logger *testLogger) write(level string, values ...interface{}) {
-	logger.t.Logf(
-		fmt.Sprintf("[%-5.5s] "+values[0].(string), level),
-		values[1:]...,
-	)
-}
-
-func (logger *testLogger) Debug(values ...interface{}) {
-	logger.write("DEBUG", values...)
-}
-
-func (logger *testLogger) Info(values ...interface{}) {
-	logger.write("INFO", values...)
-}
-
-func (logger *testLogger) Warn(values ...interface{}) {
-	logger.write("WARN", values...)
-}
-
-func (logger *testLogger) Error(values ...interface{}) {
-	logger.write("ERROR", values...)
 }
 
 // ClusterTest represents a test which uses a zookeeper test cluster in isolation.
@@ -140,7 +110,7 @@ func (this *ClusterTest) NewDiscoveryBuilder(configuration string) *DiscoveryBui
 
 // NewDiscovery creates a new Discovery instance using the supplied configuration.  See NewDiscoveryBuilder.
 func (this *ClusterTest) NewDiscovery(configuration string) Discovery {
-	return this.NewDiscoveryBuilder(configuration).NewDiscovery(&testLogger{this.t})
+	return this.NewDiscoveryBuilder(configuration).NewDiscovery(&DefaultLogger{os.Stdout})
 }
 
 func TestMain(m *testing.M) {

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/foursquare/curator.go"
 	"github.com/foursquare/fsgo/net/discovery"
-	"github.com/samuel/go-zookeeper/zk"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -80,7 +79,6 @@ type curatorDiscovery struct {
 
 	connectionStates chan curator.ConnectionState
 	curatorEvents    chan curator.CuratorEvent
-	operations       chan func()
 	once             sync.Once
 }
 
@@ -101,25 +99,29 @@ func (this *curatorDiscovery) running() bool {
 	return atomic.LoadUint32(&this.state) == discoveryStateRunning
 }
 
-// handleWatchEvent implements the logic executed in response to Curator WATCH events.
-// This method MUST be invoked on the goroutine that processes operations.
-func (this *curatorDiscovery) handleWatchEvent(event curator.CuratorEvent) {
-	this.logger.Debug("handleWatchEvent(%v)", event)
-	watchedEvent := event.WatchedEvent()
-	if watchedEvent != nil && watchedEvent.State == zk.StateHasSession {
-		this.logger.Warn("Recovering from zookeeper connection disruption")
-		this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
-			instances, err := serviceWatcher.readServices()
-			if err != nil {
-				this.logger.Warn("Error while attempting to read %s services after connection disruption: %v", serviceWatcher.serviceName, err)
-			} else {
-				serviceWatcher.dispatch(instances)
-			}
-		})
-	} else if serviceWatcher, ok := this.serviceWatcherSet.findByPath(event.Path()); ok {
+// handleReconnect() should be called only inside the main event loop when
+// a zookeeper reconnection has been detected.
+func (this *curatorDiscovery) handleReconnect() {
+	this.logger.Warn("Recovering from zookeeper connection disruption")
+	this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
+		instances, err := serviceWatcher.readServices()
+		if err != nil {
+			this.logger.Warn("Error while attempting to read [%s] service instances after connection disruption: %v", serviceWatcher.serviceName, err)
+		} else {
+			this.logger.Warn("Updating [%s] service with %#v instances after connection disruption", serviceWatcher.serviceName, instances)
+			serviceWatcher.dispatch(instances)
+		}
+	})
+}
+
+// updateServices dispatches an update event for services on a given path, if and only
+// if the path is recognized.
+func (this *curatorDiscovery) updateServices(path string) {
+	if serviceWatcher, ok := this.serviceWatcherSet.findByPath(path); ok {
+		this.logger.Debug("Updating [%s] services", serviceWatcher.serviceName)
 		instances, err := serviceWatcher.readServicesAndWatch()
 		if err != nil {
-			this.logger.Warn("Error while reading services: %v\n", err)
+			this.logger.Warn("Error while updating services: %v", err)
 		} else {
 			serviceWatcher.dispatch(instances)
 		}
@@ -223,29 +225,28 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 			}
 		}
 
-		this.logger.Info("Watching services: %s", this.serviceWatcherSet.serviceNames)
-		this.serviceWatcherSet.initialize(this.curatorConnection)
+		if this.serviceWatcherSet.serviceCount() > 0 {
+			this.logger.Info("Watching services: %v", this.serviceWatcherSet.serviceNames)
+			this.serviceWatcherSet.initialize(this.curatorConnection)
+		}
 
 		this.connectionStates = make(chan curator.ConnectionState, 10)
 		this.curatorEvents = make(chan curator.CuratorEvent, 10)
-		this.operations = make(chan func(), 100)
 		this.curatorConnection.ConnectionStateListenable().AddListener(this)
 		this.curatorConnection.CuratorListenable().AddListener(this)
+		atomic.StoreUint32(&this.state, discoveryStateRunning)
 
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
 			defer close(this.connectionStates)
 			defer close(this.curatorEvents)
-			defer close(this.operations)
 			defer func() {
 				this.logger.Info("Discovery client shutting down")
 				atomic.StoreUint32(&this.state, discoveryStateStopped)
 				this.curatorConnection.ConnectionStateListenable().RemoveListener(this)
 				this.curatorConnection.CuratorListenable().RemoveListener(this)
 			}()
-
-			atomic.StoreUint32(&this.state, discoveryStateRunning)
 
 			for {
 				select {
@@ -256,11 +257,12 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 
 					return
 				case newState := <-this.connectionStates:
-					this.logger.Debug("connection state: %v\n", newState)
-				case operation := <-this.operations:
-					operation()
+					this.logger.Debug("connection state: %v", newState)
+					if newState == curator.RECONNECTED {
+						this.handleReconnect()
+					}
 				case event := <-this.curatorEvents:
-					this.logger.Debug("curator event: type=%s, path=%s, error=%v, children=%v\n", event.Type(), event.Path(), event.Err(), event.Children())
+					this.logger.Debug("curator event: %#v", event)
 
 					switch event.Type() {
 					case curator.CLOSING:
@@ -269,7 +271,13 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 						this.logger.Info("Curator closing.  Service Discovery shutting down.")
 						return
 					case curator.WATCHED:
-						this.handleWatchEvent(event)
+						this.logger.Debug("Watch event received from curator")
+						watchedEvent := event.WatchedEvent()
+						if watchedEvent == nil {
+							this.logger.Warn("Nil watched event from Curator")
+						} else if path := watchedEvent.Path; len(path) > 0 {
+							this.updateServices(path)
+						}
 					}
 				}
 			}
