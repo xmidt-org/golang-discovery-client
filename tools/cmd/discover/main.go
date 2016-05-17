@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"github.com/Comcast/golang-discovery-client/service"
+	"github.com/samuel/go-zookeeper/zk"
 	"os"
 	"os/signal"
 	"strings"
@@ -58,24 +59,24 @@ func exec() int {
 	defer waitGroup.Wait()
 	defer close(shutdown)
 
+	logger := zk.DefaultLogger
 	discoveryBuilder := newDiscoveryBuilder()
-	logger := &service.DefaultLogger{os.Stdout}
 	discovery := discoveryBuilder.NewDiscovery(logger)
 	monitor := NewMonitor(logger)
 
 	if err := monitor.Run(waitGroup, shutdown); err != nil {
-		logger.Error("Unable to start monitor: %v", err)
+		logger.Printf("Unable to start monitor: %v", err)
 		return 1
 	}
 
 	if err := discovery.Run(waitGroup, shutdown); err != nil {
-		logger.Error("Unable to start discovery client: %v", err)
+		logger.Printf("Unable to start discovery client: %v", err)
 		return 1
 	}
 
 	for _, serviceName := range discovery.ServiceNames() {
 		if err := discovery.AddListener(serviceName, true, monitor); err != nil {
-			logger.Error("Unable to add monitor to service %s: %v", serviceName, err)
+			logger.Printf("Unable to add monitor to service %s: %v", serviceName, err)
 			return 1
 		}
 	}
