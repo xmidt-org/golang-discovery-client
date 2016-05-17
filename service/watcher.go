@@ -23,10 +23,20 @@ type serviceWatcher struct {
 }
 
 // addListener appends a listener to this watcher
-func (this *serviceWatcher) addListener(listener Listener) {
+func (this *serviceWatcher) addListener(fetchInitial bool, listener Listener) error {
 	this.listenerMutex.Lock()
 	defer this.listenerMutex.Unlock()
 	this.listeners = append(this.listeners, listener)
+
+	if fetchInitial {
+		if initialInstances, err := this.readServices(); err != nil {
+			return err
+		} else {
+			listener.ServicesChanged(this.serviceName, initialInstances)
+		}
+	}
+
+	return nil
 }
 
 // removeListener removes a listener to this watcher
@@ -198,12 +208,6 @@ func (this *serviceWatcherSet) findByName(serviceName string) (*serviceWatcher, 
 func (this *serviceWatcherSet) findByPath(path string) (*serviceWatcher, bool) {
 	value, ok := this.byPath[path]
 	return value, ok
-}
-
-func (this *serviceWatcherSet) visit(visitor func(*serviceWatcher)) {
-	for _, serviceWatcher := range this.byName {
-		visitor(serviceWatcher)
-	}
 }
 
 func (this *serviceWatcherSet) initialize(curatorConnection discovery.Conn) error {

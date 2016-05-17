@@ -38,14 +38,10 @@ type Discovery interface {
 	// If no services by that name are watched, this method returns an error.
 	FetchServices(serviceName string) (Instances, error)
 
-	// AddListenerForAll adds the given listener for all watched services
-	AddListenerForAll(listener Listener)
-
-	// RemoveListenerFromAll removes the given listener from all watched services
-	RemoveListenerFromAll(listener Listener)
-
-	// AddListener registers a listener for the given service name
-	AddListener(serviceName string, listener Listener)
+	// AddListener registers a listener for the given service name.  If fetchInitial is true,
+	// the supplied listener will receive the initial set of services.  The returned error
+	// will indicate any problems with that initial fetch.
+	AddListener(serviceName string, fetchInitial bool, listener Listener) error
 
 	// RemoveListener deregisters a listener for the given service name
 	RemoveListener(serviceName string, listener Listener)
@@ -93,7 +89,7 @@ func (this *curatorDiscovery) running() bool {
 // a zookeeper reconnection has been detected.
 func (this *curatorDiscovery) handleReconnect() {
 	this.logger.Warn("Recovering from zookeeper connection disruption")
-	this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
+	for _, serviceWatcher := range this.serviceWatcherSet.byName {
 		instances, err := serviceWatcher.readServices()
 		if err != nil {
 			this.logger.Warn("Error while attempting to read [%s] service instances after connection disruption: %v", serviceWatcher.serviceName, err)
@@ -101,7 +97,7 @@ func (this *curatorDiscovery) handleReconnect() {
 			this.logger.Warn("Updating [%s] service with %#v instances after connection disruption", serviceWatcher.serviceName, instances)
 			serviceWatcher.dispatch(instances)
 		}
-	})
+	}
 }
 
 // updateServices dispatches an update event for services on a given path, if and only
@@ -146,22 +142,12 @@ func (this *curatorDiscovery) FetchServices(serviceName string) (Instances, erro
 	return nil, errors.New(fmt.Sprintf("No such service: %s", serviceName))
 }
 
-func (this *curatorDiscovery) AddListenerForAll(listener Listener) {
-	this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
-		serviceWatcher.addListener(listener)
-	})
-}
-
-func (this *curatorDiscovery) RemoveListenerFromAll(listener Listener) {
-	this.serviceWatcherSet.visit(func(serviceWatcher *serviceWatcher) {
-		serviceWatcher.removeListener(listener)
-	})
-}
-
-func (this *curatorDiscovery) AddListener(serviceName string, listener Listener) {
+func (this *curatorDiscovery) AddListener(serviceName string, fetchInitial bool, listener Listener) error {
 	if serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName); ok {
-		serviceWatcher.addListener(listener)
+		return serviceWatcher.addListener(fetchInitial, listener)
 	}
+
+	return nil
 }
 
 func (this *curatorDiscovery) RemoveListener(serviceName string, listener Listener) {
