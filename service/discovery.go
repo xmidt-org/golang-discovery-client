@@ -75,16 +75,8 @@ type curatorDiscovery struct {
 	logger            Logger
 	serviceDiscovery  *discovery.ServiceDiscovery
 
-	connectionStates chan curator.ConnectionState
-	curatorEvents    chan curator.CuratorEvent
-	once             sync.Once
-}
-
-// StateChanged monitors the Curator connection for changes, and updates this Discovery
-// instance.  Client code can use Connected() to determine if the underlying connection
-// to Zookeeper is actually connected.
-func (this *curatorDiscovery) StateChanged(client curator.CuratorFramework, newState curator.ConnectionState) {
-	this.connectionStates <- newState
+	curatorEvents chan curator.CuratorEvent
+	once          sync.Once
 }
 
 // EventReceived provides multiplexing for the various events that this discovery can receive
@@ -228,9 +220,7 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 			this.serviceWatcherSet.initialize(this.curatorConnection)
 		}
 
-		this.connectionStates = make(chan curator.ConnectionState, 10)
 		this.curatorEvents = make(chan curator.CuratorEvent, 10)
-		this.curatorConnection.ConnectionStateListenable().AddListener(this)
 		this.curatorConnection.CuratorListenable().AddListener(this)
 		atomic.StoreUint32(&this.state, discoveryStateRunning)
 
@@ -241,10 +231,8 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 			defer func() {
 				this.logger.Info("Discovery client shutting down")
 				atomic.StoreUint32(&this.state, discoveryStateStopped)
-				this.curatorConnection.ConnectionStateListenable().RemoveListener(this)
 				this.curatorConnection.CuratorListenable().RemoveListener(this)
 
-				close(this.connectionStates)
 				close(this.curatorEvents)
 			}()
 
@@ -257,27 +245,29 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 
 					return
 
-				case connectionState := <-this.connectionStates:
-					this.logger.Debug("connection state: %v", connectionState)
-
 				case curatorEvent := <-this.curatorEvents:
-					this.logger.Debug("curator event: %#v", curatorEvent)
+					watchedEvent := curatorEvent.WatchedEvent()
+					this.logger.Debug(
+						"curator event: type=%s, path=%s, children=%s, err=%v, watchedEvent=%#v",
+						curatorEvent.Type(),
+						curatorEvent.Path(),
+						curatorEvent.Children(),
+						curatorEvent.Err(),
+						watchedEvent,
+					)
 
 					switch curatorEvent.Type() {
 					case curator.CLOSING:
-						// no need to close the curator here, this should be an edge case
-						// since clients will normally close(shutdown) to shut this discovery instance down
 						this.logger.Info("Curator closing.  Service Discovery shutting down.")
 						return
 					case curator.WATCHED:
-						this.logger.Debug("Watch event received from curator")
-						watchedEvent := curatorEvent.WatchedEvent()
 						if watchedEvent == nil {
 							this.logger.Warn("Nil watched event from Curator")
-						} else if path := watchedEvent.Path; len(path) > 0 {
-							this.updateServices(path)
-						} else if eventType := watchedEvent.Type; eventType == zk.EventSession {
+						} else if watchedEvent.Type == zk.EventSession && watchedEvent.State == zk.StateHasSession {
+							// only once the session has been fully reestablished to we want to reread everything
 							this.handleReconnect()
+						} else if watchedEvent.Type == zk.EventNodeChildrenChanged && len(watchedEvent.Path) > 0 {
+							this.updateServices(watchedEvent.Path)
 						}
 					}
 				}
