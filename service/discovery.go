@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/foursquare/curator.go"
 	"github.com/foursquare/fsgo/net/discovery"
+	"github.com/samuel/go-zookeeper/zk"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -258,9 +259,6 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 
 				case connectionState := <-this.connectionStates:
 					this.logger.Debug("connection state: %v", connectionState)
-					if connectionState == curator.RECONNECTED {
-						this.handleReconnect()
-					}
 
 				case curatorEvent := <-this.curatorEvents:
 					this.logger.Debug("curator event: %#v", curatorEvent)
@@ -278,6 +276,8 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 							this.logger.Warn("Nil watched event from Curator")
 						} else if path := watchedEvent.Path; len(path) > 0 {
 							this.updateServices(path)
+						} else if eventType := watchedEvent.Type; eventType == zk.EventSession {
+							this.handleReconnect()
 						}
 					}
 				}

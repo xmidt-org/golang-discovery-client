@@ -99,7 +99,9 @@ func (this *serviceWatcher) readServices() (Instances, error) {
 // readServicesAndWatch is like readServices, except that it also sets a watch
 // on the watched service path
 func (this *serviceWatcher) readServicesAndWatch() (Instances, error) {
-	childIds, err := this.curatorConnection.GetChildren().Watched().ForPath(this.servicePath)
+	childIds, err := this.curatorConnection.GetChildren().
+		Watched().
+		ForPath(this.servicePath)
 	if err != nil {
 		return nil, errors.New(
 			fmt.Sprintf("Error while getting children with watch for path %s: %v", this.servicePath, err),
