@@ -2,12 +2,13 @@ package main
 
 import (
 	"flag"
+	"fmt"
+	"github.com/Comcast/golang-discovery-client/service"
+	"github.com/foursquare/fsgo/net/discovery"
 	"os"
 	"os/signal"
-
-	"github.com/Comcast/golang-discovery-client/service"
-	"github.com/Comcast/golang-discovery-client/service/cmd"
-	"github.com/foursquare/fsgo/net/discovery"
+	"strings"
+	"sync"
 )
 
 type Category string
@@ -15,6 +16,27 @@ type Categories map[Category]service.Instances
 type ServiceMap map[string]service.Instances
 
 const (
+	// ConnectionFlag is the command line flag used to specify the Curator connection string
+	ConnectionFlag string = "connection"
+
+	// DefaultConnection is the default connection string
+	DefaultConnection string = "127.0.0.1:2181"
+
+	// ConnectionUsage is the usage text for ConnectionFlag
+	ConnectionUsage string = "the Curator connection string (comma-delimited list of host:port entries without spaces)"
+
+	// BasePathFlag is the command line flag used to specify the base service path
+	BasePathFlag string = "basePath"
+
+	// BasePathUsage is the usage text for BasePathFlag
+	BasePathUsage string = "the parent znode path for services"
+
+	// WatchFlag is the command line flag used to specify the names of one or more services to watch
+	WatchFlag string = "watch"
+
+	// WatchUsage is the usage text for WatchFlag
+	WatchUsage string = "comma-delimited list of service names to watch (no spaces)"
+
 	// CategoryInitial is the category assigned to all instances when the discovery client is first queried
 	CategoryInitial Category = "INITIAL"
 
@@ -96,7 +118,7 @@ func printUpdates(logger service.Logger, serviceName string, categories Categori
 	)
 }
 
-func initialinstances(logger service.Logger, discovery service.Discovery) ServiceMap {
+func initialInstances(logger service.Logger, discovery service.Discovery) ServiceMap {
 	serviceMap := make(ServiceMap, discovery.ServiceCount())
 	for _, serviceName := range discovery.ServiceNames() {
 		if instances, err := discovery.FetchServices(serviceName); err != nil {
@@ -122,7 +144,7 @@ func printInitial(logger service.Logger, initial ServiceMap) {
 	}
 }
 
-func monitorinstances(logger service.Logger, discovery service.Discovery, serviceMap ServiceMap) {
+func monitorInstances(logger service.Logger, discovery service.Discovery, serviceMap ServiceMap) {
 	discovery.AddListenerForAll(
 		service.ListenerFunc(func(serviceName string, newInstances service.Instances) {
 			if oldInstances, ok := serviceMap[serviceName]; ok {
@@ -135,25 +157,46 @@ func monitorinstances(logger service.Logger, discovery service.Discovery, servic
 	)
 }
 
-func main() {
-	cmd.ConfigureCommandLine()
-	flag.Parse()
+// newDiscoveryBuilder extracts a DiscoveryBuilder from the command line
+func newDiscoveryBuilder() *service.DiscoveryBuilder {
 	discoveryBuilder := &service.DiscoveryBuilder{}
-	cmd.ApplyCommandLine(discoveryBuilder)
+	flag.StringVar(&discoveryBuilder.Connection, ConnectionFlag, DefaultConnection, ConnectionUsage)
+	flag.StringVar(&discoveryBuilder.BasePath, BasePathFlag, "", BasePathUsage)
 
+	var watchList string
+	flag.StringVar(&watchList, WatchFlag, "", WatchUsage)
+
+	flag.Parse()
+	if len(watchList) == 0 {
+		fmt.Fprintln(os.Stderr, "At least (1) watch is required")
+		os.Exit(1)
+	}
+
+	discoveryBuilder.Watches = strings.Split(watchList, ",")
+	return discoveryBuilder
+}
+
+func main() {
+	discoveryBuilder := newDiscoveryBuilder()
 	logger := &service.DefaultLogger{os.Stdout}
-	discovery, err := discoveryBuilder.NewDiscovery(logger, true)
+	discovery := discoveryBuilder.NewDiscovery(logger)
+
+	waitGroup := &sync.WaitGroup{}
+	shutdown := make(chan struct{})
+
+	err := discovery.Run(waitGroup, shutdown)
 	if err != nil {
 		logger.Error("Unable to start discovery client: %v", err)
 		os.Exit(1)
 	}
 
-	serviceMap := initialinstances(logger, discovery)
+	serviceMap := initialInstances(logger, discovery)
 	printInitial(logger, serviceMap)
-	monitorinstances(logger, discovery, serviceMap)
+	monitorInstances(logger, discovery, serviceMap)
 
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, os.Interrupt)
 	<-signals
-	discovery.Close()
+	close(shutdown)
+	waitGroup.Wait()
 }

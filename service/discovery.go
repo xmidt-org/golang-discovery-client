@@ -11,10 +11,6 @@ import (
 )
 
 const (
-	DefaultWatchCooldown = time.Duration(5 * time.Second)
-)
-
-const (
 	discoveryStateNotStarted = uint32(iota)
 	discoveryStateRunning
 	discoveryStateStopped
@@ -73,7 +69,6 @@ type curatorDiscovery struct {
 	basePath      string
 	registrations Instances
 
-	watchCooldown     time.Duration
 	serviceWatcherSet *serviceWatcherSet
 	curatorConnection discovery.Conn
 	logger            Logger
@@ -241,13 +236,15 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 		waitGroup.Add(1)
 		go func() {
 			defer waitGroup.Done()
-			defer close(this.connectionStates)
-			defer close(this.curatorEvents)
+
 			defer func() {
 				this.logger.Info("Discovery client shutting down")
 				atomic.StoreUint32(&this.state, discoveryStateStopped)
 				this.curatorConnection.ConnectionStateListenable().RemoveListener(this)
 				this.curatorConnection.CuratorListenable().RemoveListener(this)
+
+				close(this.connectionStates)
+				close(this.curatorEvents)
 			}()
 
 			for {
@@ -309,10 +306,6 @@ type DiscoveryBuilder struct {
 	// Watches contains the names of services, registered under the BasePath,
 	// to listen for changes
 	Watches []string `json:"watches"`
-
-	// WatchCooldown is the interval between noticing a service change and the
-	// time services are actually reread from zookeeper
-	WatchCooldown time.Duration `json:"watchCooldown"`
 }
 
 // NewDiscovery creates a distinct Discovery instance from this DiscoveryBuilder.  Changes
@@ -329,17 +322,11 @@ func (this *DiscoveryBuilder) NewDiscovery(logger Logger) Discovery {
 	watches := make([]string, len(this.Watches))
 	copy(watches, this.Watches)
 
-	watchCooldown := this.WatchCooldown
-	if watchCooldown < 1 {
-		watchCooldown = DefaultWatchCooldown
-	}
-
 	return &curatorDiscovery{
 		connection:        this.Connection,
 		basePath:          this.BasePath,
 		registrations:     registrations,
 		serviceWatcherSet: newServiceWatcherSet(this.Watches, this.BasePath),
 		logger:            logger,
-		watchCooldown:     watchCooldown,
 	}
 }
