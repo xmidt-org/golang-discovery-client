@@ -3,9 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/json"
-	"flag"
 	"github.com/samuel/go-zookeeper/zk"
-	"io"
 	"os"
 	"strconv"
 	"testing"
@@ -31,17 +29,12 @@ func ConnectionString(testCluster *zk.TestCluster) string {
 	return buffer.String()
 }
 
-// logWriter is an internal type used in lieu of os.Stdout and os.Stderr.
-// This writer capture output to the test log, making it available if verbose
-// output is specified.
-type logWriter struct {
-	t      *testing.T
-	prefix string
+type testLogger struct {
+	t *testing.T
 }
 
-func (this *logWriter) Write(buffer []byte) (written int, err error) {
-	this.t.Logf("%s%s", this.prefix, string(buffer))
-	return len(buffer), nil
+func (l *testLogger) Printf(format string, parameters ...interface{}) {
+	l.t.Logf(format, parameters...)
 }
 
 // ClusterTest represents a test which uses a zookeeper test cluster in isolation.
@@ -53,18 +46,7 @@ type ClusterTest struct {
 // StartClusterTest builds and starts a zookeeper test cluster.  Stdout and stderr are redirected
 // to the test logging, which means they are available when -v is specified.
 func StartClusterTest(t *testing.T, nodeCount int) *ClusterTest {
-	var zoutWriter io.Writer
-	var zerrWriter io.Writer
-
-	if zout {
-		zoutWriter = &logWriter{t, ""}
-	}
-
-	if zerr {
-		zerrWriter = &logWriter{t, "[ZK ERROR] "}
-	}
-
-	testCluster, err := zk.StartTestCluster(nodeCount, zoutWriter, zerrWriter)
+	testCluster, err := zk.StartTestCluster(nodeCount, os.Stdout, os.Stderr)
 	if err != nil {
 		t.Fatalf("Could not start test cluster: %v", err)
 	}
@@ -109,14 +91,6 @@ func (this *ClusterTest) NewDiscoveryBuilder(configuration string) *DiscoveryBui
 }
 
 // NewDiscovery creates a new Discovery instance using the supplied configuration.  See NewDiscoveryBuilder.
-func (this *ClusterTest) NewDiscovery(configuration string) Discovery {
-	return this.NewDiscoveryBuilder(configuration).NewDiscovery(&DefaultLogger{os.Stdout})
-}
-
-func TestMain(m *testing.M) {
-	flag.BoolVar(&zout, "zout", false, "captures zookeeper stdout in the test log")
-	flag.BoolVar(&zerr, "zerr", true, "captures zookeeper stderr in the test log")
-	flag.Parse()
-
-	os.Exit(m.Run())
+func (this *ClusterTest) NewDiscovery(t *testing.T, configuration string) Discovery {
+	return this.NewDiscoveryBuilder(configuration).NewDiscovery(&testLogger{t})
 }

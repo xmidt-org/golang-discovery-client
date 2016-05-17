@@ -68,7 +68,7 @@ type curatorDiscovery struct {
 
 	serviceWatcherSet *serviceWatcherSet
 	curatorConnection discovery.Conn
-	logger            Logger
+	logger            zk.Logger
 	serviceDiscovery  *discovery.ServiceDiscovery
 
 	curatorEvents chan curator.CuratorEvent
@@ -88,13 +88,12 @@ func (this *curatorDiscovery) running() bool {
 // handleReconnect() should be called only inside the main event loop when
 // a zookeeper reconnection has been detected.
 func (this *curatorDiscovery) handleReconnect() {
-	this.logger.Warn("Recovering from zookeeper connection disruption")
+	this.logger.Printf("Recovering from zookeeper connection disruption")
 	for _, serviceWatcher := range this.serviceWatcherSet.byName {
 		instances, err := serviceWatcher.readServices()
 		if err != nil {
-			this.logger.Warn("Error while attempting to read [%s] service instances after connection disruption: %v", serviceWatcher.serviceName, err)
+			this.logger.Printf("Error while attempting to read [%s] service instances after connection disruption: %v", serviceWatcher.serviceName, err)
 		} else {
-			this.logger.Warn("Updating [%s] service with %#v instances after connection disruption", serviceWatcher.serviceName, instances)
 			serviceWatcher.dispatch(instances)
 		}
 	}
@@ -104,10 +103,9 @@ func (this *curatorDiscovery) handleReconnect() {
 // if the path is recognized.
 func (this *curatorDiscovery) updateServices(path string) {
 	if serviceWatcher, ok := this.serviceWatcherSet.findByPath(path); ok {
-		this.logger.Info("Updating [%s] services", serviceWatcher.serviceName)
 		instances, err := serviceWatcher.readServicesAndWatch()
 		if err != nil {
-			this.logger.Warn("Error while updating services: %v", err)
+			this.logger.Printf("Error while updating services: %v", err)
 		} else {
 			serviceWatcher.dispatch(instances)
 		}
@@ -173,9 +171,8 @@ func (this *curatorDiscovery) BlockUntilConnectedTimeout(maxWaitTime time.Durati
 }
 
 func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan struct{}) (err error) {
-	this.logger.Debug("Run()")
 	this.once.Do(func() {
-		this.logger.Info("Discovery client starting")
+		this.logger.Printf("Discovery client starting")
 		this.curatorConnection, err = discovery.DefaultConn(this.connection)
 		if err != nil {
 			return
@@ -188,7 +185,7 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 		}()
 
 		if len(this.registrations) > 0 {
-			this.logger.Info("Maintaining registrations: %s", this.registrations)
+			this.logger.Printf("Maintaining registrations: %s", this.registrations)
 			this.serviceDiscovery = discovery.NewServiceDiscovery(this.curatorConnection, this.basePath)
 			err = this.serviceDiscovery.MaintainRegistrations()
 			if err != nil {
@@ -202,7 +199,7 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 		}
 
 		if this.serviceWatcherSet.serviceCount() > 0 {
-			this.logger.Info("Watching services: %v", this.serviceWatcherSet.serviceNames)
+			this.logger.Printf("Watching services: %v", this.serviceWatcherSet.serviceNames)
 			this.serviceWatcherSet.initialize(this.curatorConnection)
 		}
 
@@ -215,7 +212,7 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 			defer waitGroup.Done()
 
 			defer func() {
-				this.logger.Info("Discovery client shutting down")
+				this.logger.Printf("Discovery client shutting down")
 				atomic.StoreUint32(&this.state, discoveryStateStopped)
 				this.curatorConnection.CuratorListenable().RemoveListener(this)
 
@@ -226,31 +223,20 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 				select {
 				case <-shutdown:
 					if err := this.curatorConnection.Close(); err != nil {
-						this.logger.Warn("Error while closing Curator: %v", err)
+						this.logger.Printf("Error while closing Curator: %v", err)
 					}
 
 					return
 
 				case curatorEvent := <-this.curatorEvents:
-					watchedEvent := curatorEvent.WatchedEvent()
-					this.logger.Debug(
-						"curator event: type=%s, path=%s, children=%s, err=%v, watchedEvent=%#v",
-						curatorEvent.Type(),
-						curatorEvent.Path(),
-						curatorEvent.Children(),
-						curatorEvent.Err(),
-						watchedEvent,
-					)
-
 					switch curatorEvent.Type() {
 					case curator.CLOSING:
-						this.logger.Info("Curator closing.  Service Discovery shutting down.")
+						this.logger.Printf("Curator closing.  Service Discovery shutting down.")
 						return
 					case curator.WATCHED:
-						if watchedEvent == nil {
-							this.logger.Warn("Nil watched event from Curator")
+						if watchedEvent := curatorEvent.WatchedEvent(); watchedEvent == nil {
+							this.logger.Printf("Nil watched event from Curator")
 						} else if watchedEvent.Type == zk.EventSession && watchedEvent.State == zk.StateHasSession {
-							// only once the session has been fully reestablished to we want to reread everything
 							this.handleReconnect()
 						} else if watchedEvent.Type == zk.EventNodeChildrenChanged && len(watchedEvent.Path) > 0 {
 							this.updateServices(watchedEvent.Path)
@@ -286,9 +272,7 @@ type DiscoveryBuilder struct {
 
 // NewDiscovery creates a distinct Discovery instance from this DiscoveryBuilder.  Changes
 // to this builder will not affect the newly created Discovery instance, and vice versa.
-func (this *DiscoveryBuilder) NewDiscovery(logger Logger) Discovery {
-	logger.Debug("NewDiscovery()")
-
+func (this *DiscoveryBuilder) NewDiscovery(logger zk.Logger) Discovery {
 	registrations := make(Instances, len(this.Registrations))
 	for index := 0; index < len(registrations); index++ {
 		clone := *this.Registrations[index]

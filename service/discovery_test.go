@@ -24,7 +24,7 @@ func TestWatchAndAdvertise(t *testing.T) {
 	defer close(shutdown)
 
 	t.Log("Starting watch discovery")
-	watchDiscovery := clusterTest.NewDiscovery(fmt.Sprintf(`{"basePath": "%s", "watches": ["%s"]}`, testBasePath, testServiceName))
+	watchDiscovery := clusterTest.NewDiscovery(t, fmt.Sprintf(`{"basePath": "%s", "watches": ["%s"]}`, testBasePath, testServiceName))
 	if err := watchDiscovery.Run(waitGroup, shutdown); err != nil {
 		t.Fatalf("Unable to start watch Discovery: %v", err)
 	}
@@ -59,6 +59,7 @@ func TestWatchAndAdvertise(t *testing.T) {
 	updates := make(chan Instances, 1)
 	watchDiscovery.AddListener(
 		testServiceName,
+		false,
 		ListenerFunc(func(serviceName string, instances Instances) {
 			t.Logf("New %s services: %v", serviceName, instances)
 			updates <- instances
@@ -67,6 +68,7 @@ func TestWatchAndAdvertise(t *testing.T) {
 
 	t.Log("Starting advertise discovery")
 	advertiseDiscovery := clusterTest.NewDiscovery(
+		t,
 		fmt.Sprintf(
 			`{"basePath": "%s", "registrations": [{"name": "%s", "address": "%s", "port": %d}]}`,
 			testBasePath,
@@ -84,7 +86,7 @@ func TestWatchAndAdvertise(t *testing.T) {
 		t.Fatalf("Advertise Discovery unable to connect: %v", err)
 	}
 
-	time.AfterFunc(3*DefaultWatchCooldown, func() {
+	time.AfterFunc(3*time.Second, func() {
 		t.Log("Timeout has elapsed")
 		close(updates)
 	})
@@ -120,7 +122,7 @@ func TestTolerateDisconnection(t *testing.T) {
 	defer close(shutdown)
 
 	t.Log("Starting watch discovery")
-	watchDiscovery := clusterTest.NewDiscovery(fmt.Sprintf(`{"basePath": "%s", "watches": ["%s"]}`, testBasePath, testServiceName))
+	watchDiscovery := clusterTest.NewDiscovery(t, fmt.Sprintf(`{"basePath": "%s", "watches": ["%s"]}`, testBasePath, testServiceName))
 	if err := watchDiscovery.Run(waitGroup, shutdown); err != nil {
 		t.Fatalf("Unable to start watch Discovery: %v", err)
 	}
@@ -132,6 +134,7 @@ func TestTolerateDisconnection(t *testing.T) {
 	updates := make(chan Instances, 1)
 	watchDiscovery.AddListener(
 		testServiceName,
+		false,
 		ListenerFunc(func(serviceName string, instances Instances) {
 			t.Logf("Watch discovery notified of [%s] services: %#v", serviceName, instances)
 			updates <- instances
@@ -148,6 +151,7 @@ func TestTolerateDisconnection(t *testing.T) {
 
 	t.Log("Starting advertise discovery")
 	advertiseDiscovery := clusterTest.NewDiscovery(
+		t,
 		fmt.Sprintf(
 			`{"basePath": "%s", "registrations": [{"name": "%s", "address": "%s", "port": %d}]}`,
 			testBasePath,
