@@ -4,7 +4,6 @@ go:
 
 env:
     - TEST_DIR=service
-    - TEST_DIR=service/cmd
     - TEST_DIR=tools/cmd/discover
 
 before_install:
