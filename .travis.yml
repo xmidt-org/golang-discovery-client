@@ -10,10 +10,8 @@ env:
 before_install:
     - sudo pip install --user codecov
     
-before_script:
-    - ./install_zookeeper.sh
-
 script:
+    - ./install_zookeeper.sh
     - cd $TEST_DIR && go test -coverprofile=coverage.txt
 
 after_success:
