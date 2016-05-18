@@ -9,6 +9,7 @@ env:
 
 before_install:
     - sudo pip install --user codecov
+    - ./install_zookeeper.sh
 
 script:
     - cd $TEST_DIR && go test -coverprofile=coverage.txt
