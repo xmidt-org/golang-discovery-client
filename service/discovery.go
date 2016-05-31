@@ -183,6 +183,10 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 				this.curatorConnection.Close()
 			}
 		}()
+		
+		if err = this.curatorConnection.BlockUntilConnected(); err != nil {
+			return
+		}
 
 		if len(this.registrations) > 0 {
 			this.logger.Printf("Maintaining registrations: %s", this.registrations)
@@ -200,7 +204,10 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 
 		if this.serviceWatcherSet.serviceCount() > 0 {
 			this.logger.Printf("Watching services: %v", this.serviceWatcherSet.serviceNames)
-			this.serviceWatcherSet.initialize(this.curatorConnection)
+			err = this.serviceWatcherSet.initialize(this.curatorConnection)
+			if err != nil {
+				return
+			}
 		}
 
 		this.curatorEvents = make(chan curator.CuratorEvent, 10)
