@@ -23,20 +23,10 @@ type serviceWatcher struct {
 }
 
 // addListener appends a listener to this watcher
-func (this *serviceWatcher) addListener(fetchInitial bool, listener Listener) error {
+func (this *serviceWatcher) addListener(listener Listener) {
 	this.listenerMutex.Lock()
 	defer this.listenerMutex.Unlock()
 	this.listeners = append(this.listeners, listener)
-
-	if fetchInitial {
-		if initialInstances, err := this.readServices(); err != nil {
-			return err
-		} else {
-			listener.ServicesChanged(this.serviceName, initialInstances)
-		}
-	}
-
-	return nil
 }
 
 // removeListener removes a listener to this watcher

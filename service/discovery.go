@@ -38,10 +38,8 @@ type Discovery interface {
 	// If no services by that name are watched, this method returns an error.
 	FetchServices(serviceName string) (Instances, error)
 
-	// AddListener registers a listener for the given service name.  If fetchInitial is true,
-	// the supplied listener will receive the initial set of services.  The returned error
-	// will indicate any problems with that initial fetch.
-	AddListener(serviceName string, fetchInitial bool, listener Listener) error
+	// AddListener registers a listener for the given service name.
+	AddListener(serviceName string, listener Listener)
 
 	// RemoveListener deregisters a listener for the given service name
 	RemoveListener(serviceName string, listener Listener)
@@ -140,12 +138,10 @@ func (this *curatorDiscovery) FetchServices(serviceName string) (Instances, erro
 	return nil, errors.New(fmt.Sprintf("No such service: %s", serviceName))
 }
 
-func (this *curatorDiscovery) AddListener(serviceName string, fetchInitial bool, listener Listener) error {
+func (this *curatorDiscovery) AddListener(serviceName string, listener Listener) {
 	if serviceWatcher, ok := this.serviceWatcherSet.findByName(serviceName); ok {
-		return serviceWatcher.addListener(fetchInitial, listener)
+		serviceWatcher.addListener(listener)
 	}
-
-	return nil
 }
 
 func (this *curatorDiscovery) RemoveListener(serviceName string, listener Listener) {
@@ -183,7 +179,7 @@ func (this *curatorDiscovery) Run(waitGroup *sync.WaitGroup, shutdown <-chan str
 				this.curatorConnection.Close()
 			}
 		}()
-		
+
 		if err = this.curatorConnection.BlockUntilConnected(); err != nil {
 			return
 		}
