@@ -23,20 +23,10 @@ type serviceWatcher struct {
 }
 
 // addListener appends a listener to this watcher
-func (this *serviceWatcher) addListener(fetchInitial bool, listener Listener) error {
+func (this *serviceWatcher) addListener(listener Listener) {
 	this.listenerMutex.Lock()
 	defer this.listenerMutex.Unlock()
 	this.listeners = append(this.listeners, listener)
-
-	if fetchInitial {
-		if initialInstances, err := this.readServices(); err != nil {
-			return err
-		} else {
-			listener.ServicesChanged(this.serviceName, initialInstances)
-		}
-	}
-
-	return nil
 }
 
 // removeListener removes a listener to this watcher
@@ -121,8 +111,22 @@ func (this *serviceWatcher) readServicesAndWatch() (Instances, error) {
 	return this.fetchServices(childIds), nil
 }
 
+// setWatch simply sets a watch on the service path
+func (this *serviceWatcher) setWatch() error {
+	_, err := this.curatorConnection.GetChildren().
+		Watched().
+		ForPath(this.servicePath)
+	if err != nil {
+		return errors.New(
+			fmt.Sprintf("Error while setting child watch for path %s: %v", this.servicePath, err),
+		)
+	}
+
+	return nil
+}
+
 // initialize sets up this watcher with a curator connection and ensures that any necessary
-// znode paths exist
+// znode paths exist.  The initial set of services is dispatched to any listeners.
 func (this *serviceWatcher) initialize(curatorConnection discovery.Conn) error {
 	this.curatorConnection = curatorConnection
 	err := curator.NewEnsurePath(this.servicePath).Ensure(this.curatorConnection.ZookeeperClient())
@@ -132,14 +136,22 @@ func (this *serviceWatcher) initialize(curatorConnection discovery.Conn) error {
 		)
 	}
 
-	_, err = this.curatorConnection.GetChildren().Watched().ForPath(this.servicePath)
-	if err != nil {
-		return errors.New(
-			fmt.Sprintf("Error during initialization setting watch on path %s: %v", this.servicePath, err),
-		)
+	this.listenerMutex.Lock()
+	defer this.listenerMutex.Unlock()
+
+	if len(this.listeners) > 0 {
+		instances, err := this.readServicesAndWatch()
+		if err != nil {
+			return err
+		}
+
+		// manually dispatch to listeners, since locks are reentrant
+		for _, listener := range this.listeners {
+			listener.ServicesChanged(this.serviceName, instances)
+		}
 	}
 
-	return nil
+	return this.setWatch()
 }
 
 // serviceWatcherSet is an internal collection type that maps serviceWatches by name and path
@@ -210,6 +222,7 @@ func (this *serviceWatcherSet) findByPath(path string) (*serviceWatcher, bool) {
 	return value, ok
 }
 
+// initialize initializes all watchers in this set
 func (this *serviceWatcherSet) initialize(curatorConnection discovery.Conn) error {
 	for _, serviceWatcher := range this.byName {
 		err := serviceWatcher.initialize(curatorConnection)

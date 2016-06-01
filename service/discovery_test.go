@@ -59,7 +59,6 @@ func TestWatchAndAdvertise(t *testing.T) {
 	updates := make(chan Instances, 1)
 	watchDiscovery.AddListener(
 		testServiceName,
-		false,
 		ListenerFunc(func(serviceName string, instances Instances) {
 			t.Logf("New %s services: %v", serviceName, instances)
 			updates <- instances
@@ -134,7 +133,6 @@ func TestTolerateDisconnection(t *testing.T) {
 	updates := make(chan Instances, 1)
 	watchDiscovery.AddListener(
 		testServiceName,
-		false,
 		ListenerFunc(func(serviceName string, instances Instances) {
 			t.Logf("Watch discovery notified of [%s] services: %#v", serviceName, instances)
 			updates <- instances
