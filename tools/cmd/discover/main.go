@@ -75,10 +75,7 @@ func exec() int {
 	}
 
 	for _, serviceName := range discovery.ServiceNames() {
-		if err := discovery.AddListener(serviceName, true, monitor); err != nil {
-			logger.Printf("Unable to add monitor to service %s: %v", serviceName, err)
-			return 1
-		}
+		discovery.AddListener(serviceName, monitor)
 	}
 
 	signals := make(chan os.Signal, 1)
