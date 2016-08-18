@@ -289,7 +289,7 @@ func (this *DiscoveryBuilder) NewDiscovery(logger zk.Logger) Discovery {
 		connection:        this.Connection,
 		basePath:          this.BasePath,
 		registrations:     registrations,
-		serviceWatcherSet: newServiceWatcherSet(this.Watches, this.BasePath),
+		serviceWatcherSet: newServiceWatcherSet(logger, this.Watches, this.BasePath),
 		logger:            logger,
 	}
 }

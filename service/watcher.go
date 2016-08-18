@@ -17,6 +17,7 @@ type serviceWatcher struct {
 	instanceSerializer discovery.InstanceSerializer
 	servicePath        string
 	serviceName        string
+	logger             zk.Logger
 
 	listenerMutex sync.Mutex
 	listeners     []Listener
@@ -59,14 +60,17 @@ func (this *serviceWatcher) dispatch(instances Instances) {
 // is no longer valid.  This will be reflected in a partially filled or empty
 // Instances result.
 func (this *serviceWatcher) fetchServices(childIds []string) Instances {
+	this.logger.Printf("fetchServices(childIds=%s)", childIds)
 	instances := make(Instances, 0, len(childIds))
 
 	for _, childId := range childIds {
 		instancePath := this.servicePath + "/" + childId
+		this.logger.Printf("Obtaining data for znode: %s", instancePath)
 		data, err := this.curatorConnection.GetData().ForPath(instancePath)
 		if err != nil {
 			// ignore errors when obtaining the child data, as its possible for the
 			// current set of children to have changed before this method was called
+			this.logger.Printf("Error retrieving data from %s: %s", instancePath, err)
 			continue
 		}
 
@@ -74,6 +78,7 @@ func (this *serviceWatcher) fetchServices(childIds []string) Instances {
 		if err != nil {
 			// ignore deserialization errors, as it's possible when doing upgrades
 			// for multiple versions of the discovery client to run simultaneously
+			this.logger.Printf("Error deserializing service instance from %s: %s", instancePath, err)
 			continue
 		}
 
@@ -86,6 +91,7 @@ func (this *serviceWatcher) fetchServices(childIds []string) Instances {
 
 // readServices obtains the current child nodes, then invokes readServices
 func (this *serviceWatcher) readServices() (Instances, error) {
+	this.logger.Printf("readServices() [servicePath=%s]", this.servicePath)
 	childIds, err := this.curatorConnection.GetChildren().ForPath(this.servicePath)
 	if err != nil {
 		return nil, errors.New(
@@ -99,6 +105,7 @@ func (this *serviceWatcher) readServices() (Instances, error) {
 // readServicesAndWatch is like readServices, except that it also sets a watch
 // on the watched service path
 func (this *serviceWatcher) readServicesAndWatch() (Instances, error) {
+	this.logger.Printf("readServicesAndWatch() [servicePath=%s]", this.servicePath)
 	childIds, err := this.curatorConnection.GetChildren().
 		Watched().
 		ForPath(this.servicePath)
@@ -113,6 +120,7 @@ func (this *serviceWatcher) readServicesAndWatch() (Instances, error) {
 
 // setWatch simply sets a watch on the service path
 func (this *serviceWatcher) setWatch() error {
+	this.logger.Printf("setWatch() [servicePath=%s]", this.servicePath)
 	_, err := this.curatorConnection.GetChildren().
 		Watched().
 		ForPath(this.servicePath)
@@ -128,7 +136,10 @@ func (this *serviceWatcher) setWatch() error {
 // initialize sets up this watcher with a curator connection and ensures that any necessary
 // znode paths exist.  The initial set of services is dispatched to any listeners.
 func (this *serviceWatcher) initialize(curatorConnection discovery.Conn) error {
+	this.logger.Printf("initialize(curatorConnection=%v)", curatorConnection)
 	this.curatorConnection = curatorConnection
+
+	this.logger.Printf("Ensuring %s exists ...", this.servicePath)
 	err := curator.NewEnsurePath(this.servicePath).Ensure(this.curatorConnection.ZookeeperClient())
 	if err != nil && err != zk.ErrNodeExists {
 		return errors.New(
@@ -159,11 +170,13 @@ type serviceWatcherSet struct {
 	serviceNames []string
 	byName       map[string]*serviceWatcher
 	byPath       map[string]*serviceWatcher
+	logger       zk.Logger
 }
 
 // newServiceWatcherSet is an internal Factory Method that creates one serviceWatcher
 // for each service name, then returns a serviceWatcherSet with the services mapped.
-func newServiceWatcherSet(serviceNames []string, basePath string) *serviceWatcherSet {
+func newServiceWatcherSet(logger zk.Logger, serviceNames []string, basePath string) *serviceWatcherSet {
+	logger.Printf("newServiceWatcherSet(serviceNames=%s, basePath=%s)", serviceNames, basePath)
 	watcherCount := len(serviceNames)
 	byName := make(map[string]*serviceWatcher, watcherCount)
 	byPath := make(map[string]*serviceWatcher, watcherCount)
@@ -172,6 +185,7 @@ func newServiceWatcherSet(serviceNames []string, basePath string) *serviceWatche
 	for _, serviceName := range serviceNames {
 		// ignore duplicate service names
 		if _, ok := byName[serviceName]; ok {
+			logger.Printf("Skipping duplicate watched service name: %s", serviceName)
 			continue
 		}
 
@@ -180,6 +194,7 @@ func newServiceWatcherSet(serviceNames []string, basePath string) *serviceWatche
 			instanceSerializer: instanceSerializer,
 			servicePath:        servicePath,
 			serviceName:        serviceName,
+			logger:             logger,
 		}
 
 		byName[serviceWatcher.serviceName] = serviceWatcher
@@ -190,6 +205,7 @@ func newServiceWatcherSet(serviceNames []string, basePath string) *serviceWatche
 		serviceNames: make([]string, len(byName)),
 		byName:       byName,
 		byPath:       byPath,
+		logger:       logger,
 	}
 
 	// copying the keys ensures that the service names have been deduped
@@ -199,6 +215,7 @@ func newServiceWatcherSet(serviceNames []string, basePath string) *serviceWatche
 		index++
 	}
 
+	logger.Printf("using serviceWatcherSet: %v", serviceWatcherSet)
 	return serviceWatcherSet
 }
 
@@ -224,9 +241,11 @@ func (this *serviceWatcherSet) findByPath(path string) (*serviceWatcher, bool) {
 
 // initialize initializes all watchers in this set
 func (this *serviceWatcherSet) initialize(curatorConnection discovery.Conn) error {
+	this.logger.Printf("initialize(curatorConnection=%v)", curatorConnection)
 	for _, serviceWatcher := range this.byName {
 		err := serviceWatcher.initialize(curatorConnection)
 		if err != nil {
+			this.logger.Printf("Error initializing service watcher %v: %s", serviceWatcher, err)
 			return err
 		}
 	}
