@@ -61,7 +61,12 @@ func exec() int {
 
 	logger := zk.DefaultLogger
 	discoveryBuilder := newDiscoveryBuilder()
-	discovery := discoveryBuilder.NewDiscovery(logger)
+	discovery, err := discoveryBuilder.New(logger)
+	if err != nil {
+		logger.Printf("Unable to create service Discovery: %v", err)
+		return 1
+	}
+
 	monitor := NewMonitor(logger)
 
 	if err := monitor.Run(waitGroup, shutdown); err != nil {
