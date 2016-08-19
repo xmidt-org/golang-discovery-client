@@ -2,6 +2,7 @@ package service
 
 import (
 	"github.com/foursquare/fsgo/net/discovery"
+	"github.com/stretchr/testify/assert"
 	"testing"
 )
 
@@ -12,17 +13,17 @@ var (
 		serviceInstance     discovery.ServiceInstance
 		expectedHttpAddress string
 	}{
-		{discovery.ServiceInstance{Address: "localhost", Port: &port}, "http://localhost:1234"},
-		{discovery.ServiceInstance{Address: "foobar.com", Port: &port}, "http://foobar.com:1234"},
-		{discovery.ServiceInstance{Address: "124.56.7.8", Port: &port}, "http://124.56.7.8:1234"},
-		{discovery.ServiceInstance{Address: "localhost", SslPort: &sslPort}, "https://localhost:2345"},
-		{discovery.ServiceInstance{Address: "foobar.com", SslPort: &sslPort}, "https://foobar.com:2345"},
-		{discovery.ServiceInstance{Address: "124.56.7.8", SslPort: &sslPort}, "https://124.56.7.8:2345"},
+		{discovery.ServiceInstance{Id: "1", Address: "localhost", Port: &port}, "http://localhost:1234"},
+		{discovery.ServiceInstance{Id: "2", Address: "foobar.com", Port: &port}, "http://foobar.com:1234"},
+		{discovery.ServiceInstance{Id: "3", Address: "124.56.7.8", Port: &port}, "http://124.56.7.8:1234"},
+		{discovery.ServiceInstance{Id: "4", Address: "localhost", SslPort: &sslPort}, "https://localhost:2345"},
+		{discovery.ServiceInstance{Id: "5", Address: "foobar.com", SslPort: &sslPort}, "https://foobar.com:2345"},
+		{discovery.ServiceInstance{Id: "6", Address: "124.56.7.8", SslPort: &sslPort}, "https://124.56.7.8:2345"},
 
 		// favor the SSL port over the regular port when both are supplied
-		{discovery.ServiceInstance{Address: "localhost", Port: &port, SslPort: &sslPort}, "https://localhost:2345"},
-		{discovery.ServiceInstance{Address: "foobar.com", Port: &port, SslPort: &sslPort}, "https://foobar.com:2345"},
-		{discovery.ServiceInstance{Address: "124.56.7.8", Port: &port, SslPort: &sslPort}, "https://124.56.7.8:2345"},
+		{discovery.ServiceInstance{Id: "7", Address: "localhost", Port: &port, SslPort: &sslPort}, "https://localhost:2345"},
+		{discovery.ServiceInstance{Id: "8", Address: "foobar.com", Port: &port, SslPort: &sslPort}, "https://foobar.com:2345"},
+		{discovery.ServiceInstance{Id: "9", Address: "124.56.7.8", Port: &port, SslPort: &sslPort}, "https://124.56.7.8:2345"},
 	}
 )
 
@@ -44,5 +45,14 @@ func TestHttpAddress(t *testing.T) {
 		if actual != record.expectedHttpAddress {
 			t.Errorf("Expected %s but got %s", record.expectedHttpAddress, actual)
 		}
+	}
+}
+
+func TestInstanceId(t *testing.T) {
+	assert := assert.New(t)
+
+	for _, record := range testData {
+		actual := InstanceId(&record.serviceInstance)
+		assert.Equal(record.serviceInstance.Id, actual)
 	}
 }
