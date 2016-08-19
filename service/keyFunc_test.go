@@ -24,27 +24,28 @@ var (
 		{discovery.ServiceInstance{Id: "7", Address: "localhost", Port: &port, SslPort: &sslPort}, "https://localhost:2345"},
 		{discovery.ServiceInstance{Id: "8", Address: "foobar.com", Port: &port, SslPort: &sslPort}, "https://foobar.com:2345"},
 		{discovery.ServiceInstance{Id: "9", Address: "124.56.7.8", Port: &port, SslPort: &sslPort}, "https://124.56.7.8:2345"},
+
+		// Take the Address when no port is given
+		{discovery.ServiceInstance{Id: "10", Address: "localhost"}, "http://localhost"},
 	}
 )
 
 func TestSpec(t *testing.T) {
+	assert := assert.New(t)
+
 	for _, record := range testData {
 		actual := Spec(&record.serviceInstance)
 		expected := record.serviceInstance.Spec()
-
-		if actual != expected {
-			t.Errorf("Expected %s but got %s", expected, actual)
-		}
+		assert.Equal(expected, actual)
 	}
 }
 
 func TestHttpAddress(t *testing.T) {
+	assert := assert.New(t)
+
 	for _, record := range testData {
 		actual := HttpAddress(&record.serviceInstance)
-
-		if actual != record.expectedHttpAddress {
-			t.Errorf("Expected %s but got %s", record.expectedHttpAddress, actual)
-		}
+		assert.Equal(record.expectedHttpAddress, actual)
 	}
 }
 
