@@ -18,5 +18,8 @@
 	{
 		"Root": "github.com/foursquare/fsgo",
 		"Revision": "216367fddf4b7d4b05a6de78ccd20eeabf055c61"
+	},
+	{
+		"Root": "github.com/stretchr/testify"
 	}
 ]
