@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/foursquare/fsgo/net/discovery"
+	"sort"
 )
 
 // Instances is a custom slice type that stores ServiceInstances.
@@ -73,5 +74,35 @@ func (this Instances) ToKeys(keyFunc KeyFunc, output Keys) {
 func (this Instances) ToKeyMap(keyFunc KeyFunc, output KeyMap) {
 	for _, serviceInstance := range this {
 		output[keyFunc(serviceInstance)] = serviceInstance
+	}
+}
+
+// DedupeAndSortKeys implements the common use case of translating a set of ServiceInstances
+// into keys (usually URLs), deduping the keys, and emitting them in a sorted order to a given
+// Keys instance.  This method returns the count keys emitted.
+//
+// This method ensures that a consistent ordering of keys are always added to the output.  This
+// is important when using consistent hashing to determine which service to invoke.
+func (this Instances) DedupeAndSortKeys(keyFunc KeyFunc, output Keys) int {
+	// a few optimizations:
+	switch len(this) {
+	case 0:
+		return 0
+
+	case 1:
+		output.Add(keyFunc(this[0]))
+		return 1
+
+	default:
+		// use a KeyMap to do the deduping
+		deduped := make(KeyMap, len(this))
+		this.ToKeyMap(keyFunc, deduped)
+
+		sorted := make(KeySlice, 0, len(deduped))
+		deduped.ToKeys(&sorted)
+		sort.Sort(sorted)
+		sorted.ToKeys(output)
+
+		return len(sorted)
 	}
 }
